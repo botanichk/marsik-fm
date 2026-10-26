@@ -42,6 +42,7 @@ class GlowingWave(QWidget):
         self._env = 0.10           # сглаженная огибающая 0..1
         self._sig = 0.0            # последний реальный уровень
         self._sig_time = 0.0        # время последнего реального уровня
+        self._baseline = 0.14      # медленная база уровня (AGC)
         self._phase = 0.0
         self._t = 0.0
         self._clock = QElapsedTimer()
@@ -75,12 +76,16 @@ class GlowingWave(QWidget):
         live = (self._active
                 and time.monotonic() - self._sig_time < _SIGNAL_TTL)
         if live:
-            target = max(0.10, self._sig)          # реальная музыка
+            # AGC: уровень ОТНОСИТЕЛЬНО медленной базы — ритм виден
+            # на любой громкости потока (ударные дают ratio > 1.5)
+            self._baseline += (self._sig - self._baseline) * min(1.0, dt * 0.7)
+            ratio = self._sig / max(0.03, self._baseline)
+            target = max(0.10, min(0.95, 0.45 * ratio - 0.15))
         elif self._active:
-            target = 0.16 + 0.05 * math.sin(now * 0.6)   # idle: играем
+            target = 0.13 + 0.04 * math.sin(now * 0.6)   # idle: играем
         else:
-            target = 0.10 + 0.03 * math.sin(now * 0.4)   # idle: стоим
-        rate = 9.0 if target > self._env else 4.5   # атака быстрее спада
+            target = 0.08 + 0.02 * math.sin(now * 0.4)   # idle: стоим
+        rate = 20.0 if target > self._env else 5.5   # атака быстрее спада
         self._env += (target - self._env) * min(1.0, dt * rate)
 
         speed = 0.6 + 1.2 * self._env
@@ -105,7 +110,7 @@ class GlowingWave(QWidget):
 
         # мягкое свечение фона за волной (ярче от музыки)
         halo = QRadialGradient(w * 0.5, h * 0.5, max(w, h) * 0.5)
-        a = int(12 + 30 * env)
+        a = int(8 + 44 * env)
         halo.setColorAt(0, QColor(64, 96, 200, a))
         halo.setColorAt(1, QColor(64, 96, 200, 0))
         p.fillRect(self.rect(), halo)
