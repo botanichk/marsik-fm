@@ -1,15 +1,21 @@
-"""AudioTap — пассивный перехват системного звука для визуализатора.
+"""AudioTap — пассивный перехват системного звука для визуализаторов.
 
 Читает monitor-порт sink'а, на котором играет mpv, через GStreamer
-(pulsesrc из уже установленных gst-plugins-good). Воспроизведение mpv не
-трогается, второй сетевой поток не открывается.
+(pulsesrc из установленных gst-plugins-good). mpv не трогается, второй
+сетевой поток не открывается.
 
-Любая ошибка делает тап недоступным: визуализатор переходит в idle-режим,
-радио продолжает работать. Пока воспроизведение активно, watchdog раз в
-5 секунд переподбирает default sink (смена аудиоустройства).
+Одна ветка без tee (tee в этой сборке GStreamer не прокидывает данные к
+sinks): элемент `spectrum` считает 8 полос и широкую громкость, и он же
+пропускает PCM дальше — в appsink, который отдаёт форму волны для
+осциллографа. Частота спектра ~33 раза/сек — достаточно для всех режимов.
+
+GstValueList не разбирается через get_value в этой сборке PyGObject, поэтому
+полосы читаются из s.to_string() (надёжно, покрыто try/except), а волна —
+struct.unpack из appsink. Любая ошибка уводит тап в idle: радио не страдает.
+Watchdog раз в 5 секунд следит за сменой default sink.
 """
-import array
-import math
+import re
+import struct
 import subprocess
 
 from PySide6.QtCore import QObject, QTimer, Signal
@@ -22,10 +28,19 @@ try:
 except Exception:
     Gst = None
 
+_BANDS = 8          # число полос спектра
+_WAVE_STEP = 6      # шаг сэмпления формы волны
+_WAVE_MAX = 256     # максимум точек в срезе волны
+_INTERVAL = 30000000  # 30 мс между спектрами (~33 Гц)
+# magnitude=(float){ -13.4, -18.6, ... } → числа через to_string()
+_MAG_RE = re.compile(r"magnitude=\(float\)\{([^}]*)\}")
+
 
 class AudioTap(QObject):
-    level = Signal(float)     # RMS-огибающая 0..1 (~43 Гц)
-    failed = Signal(str)      # диагностика; визуализатор остаётся в idle
+    level = Signal(float)        # громкость 0..1
+    bands = Signal(list)         # 8 полос спектра 0..1 (низ → верх)
+    wave = Signal(list)          # срез формы волны -1..1 (для scope)
+    failed = Signal(str)         # диагностика; визуализаторы уходят в idle
 
     available = Gst is not None
 
@@ -74,12 +89,17 @@ class AudioTap(QObject):
         if not device:
             self.failed.emit("default sink не найден")
             return
+        # без tee: spectrum пропускает PCM в appsink и шлёт сообщения на шину
+        launch = (
+            'pulsesrc device="{dev}" ! audioconvert ! '
+            "audio/x-raw,format=F32LE,channels=1,rate=44100 ! "
+            "spectrum bands={bands} threshold=-80 post-messages=true "
+            "message-magnitude=true interval={intv} ! "
+            'appsink name=sink emit-signals=true max-buffers=2 drop=true '
+            "sync=false"
+        ).format(dev=device, bands=_BANDS, intv=_INTERVAL)
         try:
-            pl = Gst.parse_launch(
-                'pulsesrc device="%s" ! audioconvert ! '
-                "audio/x-raw,format=F32LE,channels=1,rate=44100 ! "
-                "appsink name=sink emit-signals=true max-buffers=2 "
-                "drop=true sync=false" % device)
+            pl = Gst.parse_launch(launch)
             sink = pl.get_by_name("sink")
             sink.connect("new-sample", self._on_sample)
             pl.get_bus().set_sync_handler(self._bus_sync, None)
@@ -121,8 +141,7 @@ class AudioTap(QObject):
             self._build()
 
     def _bus_sync(self, bus, message, *args):
-        # вызывается из потока GStreamer; teardown откладываем watchdog'у,
-        # чтобы не ставить pipeline в NULL из его же потока
+        # из потока GStreamer; teardown откладываем watchdog'у
         if message.type == Gst.MessageType.ERROR:
             if self._want:
                 err, _ = message.parse_error()
@@ -131,7 +150,33 @@ class AudioTap(QObject):
             return Gst.BusSyncReply.DROP
         if message.type == Gst.MessageType.EOS:
             return Gst.BusSyncReply.DROP
+        if message.type == Gst.MessageType.ELEMENT:
+            self._on_spectrum(message)
+            return Gst.BusSyncReply.DROP
         return Gst.BusSyncReply.PASS
+
+    def _on_spectrum(self, message):
+        """Разбор spectrum → полосы + громкость (через to_string, без numpy)."""
+        s = message.get_structure()
+        if s is None or s.get_name() != "spectrum":
+            return
+        try:
+            text = s.to_string()
+        except Exception:
+            return
+        m = _MAG_RE.search(text)
+        if not m:
+            return
+        try:
+            db = [float(x) for x in m.group(1).split(",") if x.strip()]
+        except ValueError:
+            return
+        if not db:
+            return
+        # dB → 0..1: музыка лежит в ~-60..-20 dB, тишина ≈ -80
+        vals = [max(0.0, min(1.0, (v + 60.0) / 40.0)) for v in db]
+        self.level.emit(max(vals))
+        self.bands.emit(vals)
 
     def _on_sample(self, sink):
         sample = sink.emit("pull-sample")
@@ -142,13 +187,13 @@ class AudioTap(QObject):
         if ok:
             try:
                 data = info.data
-                arr = array.array("f")
-                arr.frombytes(data[: len(data) - len(data) % 4])
-                if arr:
-                    vals = arr[::4]          # каждым 4-м сэмплом — дёшево
-                    rms = math.sqrt(sum(v * v for v in vals) / len(vals))
-                    # музыкальный RMS ~0.02..0.35 → удобная шкала 0..1
-                    self.level.emit(min(1.0, 1.0 - math.exp(-8.0 * rms)))
+                n = len(data) // 4           # F32LE = 4 байта на сэмпл
+                if n:
+                    vals = struct.unpack_from("<%df" % n, data, 0)
+                    step = max(1, n // _WAVE_MAX)
+                    self.wave.emit(list(vals[::step])[:_WAVE_MAX])
+            except Exception:
+                pass
             finally:
                 buf.unmap(info)
         return Gst.FlowReturn.OK

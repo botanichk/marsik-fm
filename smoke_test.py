@@ -156,6 +156,34 @@ try:
     pump(0.5)
     check("волна и кот рисуются и в idle",
           not holder.grab().isNull())
+
+    # Nebulous: рендерится, реагирует на полосы спектра
+    from radio.viz.nebulous import Nebulous
+    neb = Nebulous()
+    neb.resize(500, 300)
+    neb.set_active(True)
+    for i in range(40):
+        neb.set_audio_level(0.3 + 0.3 * math.sin(i * 0.4))
+        neb.set_bands([0.6, 0.4, 0.2, 0.1, 0.05, 0.3, 0.5, 0.7])
+        pump(0.02)
+    check("Nebulous рендерится", not neb.grab().isNull())
+
+    # полосы хранятся как есть (реакция на реальный спектр, без AGC)
+    neb.set_bands([0.9, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.8])
+    check("спектр различает низ/верх",
+          abs(neb._bands[0] - neb._bands[1]) > 0.5,
+          "bands=%s" % neb._bands)
+
+    # переключение режимов (QComboBox → QStackedWidget)
+    from PySide6.QtWidgets import QComboBox, QStackedWidget
+    stack = QStackedWidget()
+    stack.addWidget(wave)
+    stack.addWidget(neb)
+    combo = QComboBox()
+    combo.addItems(["Glowing Wave", "Nebulous"])
+    combo.currentIndexChanged.connect(lambda i: stack.setCurrentIndex(i))
+    combo.setCurrentIndex(1)
+    check("переключение на Nebulous", stack.currentWidget() is neb)
 except Exception as exc:
     import traceback
     traceback.print_exc()

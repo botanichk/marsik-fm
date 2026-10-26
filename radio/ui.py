@@ -3,14 +3,15 @@ from PySide6.QtCore import Qt, QSettings
 from PySide6.QtWidgets import (
     QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMainWindow,
     QMessageBox, QSlider, QSplitter, QStyle, QToolButton, QVBoxLayout,
-    QWidget,
+    QWidget, QComboBox, QStackedWidget,
 )
 
 from .engine import AudioEngine, CONNECTING, ERROR, PAUSED, PLAYING, STOPPED
 from .mascot import MarsikCat
 from .stations import DEFAULT_PATH, load_stations
 from .tap import AudioTap
-from .visualizer import GlowingWave
+from .viz.glowing_wave import GlowingWave
+from .viz.nebulous import Nebulous
 
 # состояние -> (текст статуса, цвет)
 _STATUS = {
@@ -157,12 +158,25 @@ class MainWindow(QMainWindow):
         panel_layout.addWidget(self.lbl_desc)
         panel_layout.addWidget(self.lbl_track)
 
-        # светящаяся волна + маскот-кот
+        # визуализатор (переключаемый) + маскот-кот
         viz_row = QHBoxLayout()
         viz_row.setSpacing(12)
-        self.wave = GlowingWave()
+        self.viz_stack = QStackedWidget()
+        self.viz_modes = [GlowingWave(), Nebulous()]
+        for v in self.viz_modes:
+            self.viz_stack.addWidget(v)
+        self.wave = self.viz_modes[0]   # для совместимости (кот и тап)
+        self.viz_combo = QComboBox()
+        self.viz_combo.addItems(["Glowing Wave", "Nebulous"])
+        self.viz_combo.setToolTip("Режим визуализатора")
+        self.viz_combo.currentIndexChanged.connect(
+            lambda i: self.viz_stack.setCurrentIndex(i))
+        viz_col = QVBoxLayout()
+        viz_col.setSpacing(6)
+        viz_col.addWidget(self.viz_combo, 0, Qt.AlignLeft)
+        viz_col.addWidget(self.viz_stack, 1)
         self.cat = MarsikCat()
-        viz_row.addWidget(self.wave, 1)
+        viz_row.addLayout(viz_col, 1)
         viz_row.addWidget(self.cat, 0, Qt.AlignVCenter)
         panel_layout.addLayout(viz_row, 1)
 
@@ -202,11 +216,25 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(central)
 
-        # аудио-тап → волна
+        # аудио-тап → все режимы визуализатора + маскот
         self.tap = AudioTap()
-        self.tap.level.connect(self.wave.set_audio_level)
-        # кот питается от той же AGC-энергии, что и волна (один сигнал)
-        self.wave.envChanged.connect(self.cat.set_energy)
+        for v in self.viz_modes:
+            self.tap.level.connect(v.set_audio_level)
+            self.tap.bands.connect(v.set_bands)
+            self.tap.wave.connect(v.set_wave)
+        # кот питается от текущего активного режима
+        self.viz_stack.currentChanged.connect(self._on_viz_changed)
+        self.viz_modes[0].envChanged.connect(self.cat.set_energy)
+
+    def _on_viz_changed(self, idx):
+        # переподключаем маскота к энергии выбранного режима
+        for v in self.viz_modes:
+            try:
+                v.envChanged.disconnect(self.cat.set_energy)
+            except Exception:
+                pass
+        cur = self.viz_stack.currentWidget()
+        cur.envChanged.connect(self.cat.set_energy)
 
     # ---------- список станций ----------
 
@@ -300,9 +328,10 @@ class MainWindow(QMainWindow):
         self.btn_play.setIcon(self.style().standardIcon(icon))
         self.btn_stop.setEnabled(state in (CONNECTING, PLAYING, PAUSED))
 
-        # визуализатор: волна и кот живут, пока есть воспроизведение
+        # визуализатор: все режимы и кот живут, пока есть воспроизведение
         playing_like = state in (CONNECTING, PLAYING, PAUSED)
-        self.wave.set_active(playing_like)
+        for v in self.viz_modes:
+            v.set_active(playing_like)
         self.cat.set_active(playing_like)
         if playing_like:
             self.tap.start()
