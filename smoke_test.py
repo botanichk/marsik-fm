@@ -204,6 +204,23 @@ try:
     check("Galaxy: удар даёт сверхновую", gal._nova > 0.3,
           "nova=%.2f" % gal._nova)
 
+    # Oscilloscope: реальная форма волны рисуется, idle — синусоида
+    from radio.viz.oscilloscope import Oscilloscope
+    osc = Oscilloscope()
+    osc.resize(500, 300)
+    osc.set_active(True)
+    # реальный «срез PCM»: полусинусоида, отличная от плоской линии
+    pcm = [math.sin(i * 0.25) * (0.4 + 0.5 * (i % 40) / 40.0)
+           for i in range(200)]
+    for _ in range(10):
+        osc.set_wave(pcm)
+        osc.set_audio_level(0.5)
+        pump(0.02)
+    check("Oscilloscope: реальная волна рисуется", not osc.grab().isNull())
+    check("Oscilloscope: set_wave принимает данные",
+          len(osc._wave) == 200 and osc._wave_time > 0,
+          "wave=%d" % len(osc._wave))
+
 except Exception as exc:
     import traceback
     traceback.print_exc()

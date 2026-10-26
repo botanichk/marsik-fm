@@ -13,6 +13,7 @@ from .tap import AudioTap
 from .viz.glowing_wave import GlowingWave
 from .viz.nebulous import Nebulous
 from .viz.galaxy import Galaxy
+from .viz.oscilloscope import Oscilloscope
 
 # состояние -> (текст статуса, цвет)
 _STATUS = {
@@ -163,12 +164,13 @@ class MainWindow(QMainWindow):
         viz_row = QHBoxLayout()
         viz_row.setSpacing(12)
         self.viz_stack = QStackedWidget()
-        self.viz_modes = [GlowingWave(), Nebulous(), Galaxy()]
+        self.viz_modes = [GlowingWave(), Nebulous(), Galaxy(), Oscilloscope()]
         for v in self.viz_modes:
             self.viz_stack.addWidget(v)
         self.wave = self.viz_modes[0]   # для совместимости (кот и тап)
         self.viz_combo = QComboBox()
-        self.viz_combo.addItems(["Glowing Wave", "Nebulous", "Galaxy"])
+        self.viz_combo.addItems(
+            ["Glowing Wave", "Nebulous", "Galaxy", "Oscilloscope"])
         self.viz_combo.setToolTip("Режим визуализатора")
         self.viz_combo.currentIndexChanged.connect(
             lambda i: self.viz_stack.setCurrentIndex(i))
