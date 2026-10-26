@@ -221,6 +221,17 @@ try:
           len(osc._wave) == 200 and osc._wave_time > 0,
           "wave=%d" % len(osc._wave))
 
+    # Aurora: ленты рендерятся и реагируют на полосы спектра
+    from radio.viz.aurora import Aurora
+    aua = Aurora()
+    aua.resize(500, 300)
+    aua.set_active(True)
+    for i in range(30):
+        aua.set_audio_level(0.3 + 0.3 * math.sin(i * 0.4))
+        aua.set_bands([0.7, 0.5, 0.3, 0.15, 0.1, 0.35, 0.55, 0.8])
+        pump(0.02)
+    check("Aurora рендерится", not aua.grab().isNull())
+
 except Exception as exc:
     import traceback
     traceback.print_exc()
