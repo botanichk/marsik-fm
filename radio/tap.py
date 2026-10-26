@@ -28,12 +28,26 @@ try:
 except Exception:
     Gst = None
 
-_BANDS = 8          # число полос спектра
+_BANDS = 64         # FFT-полос (затем сворачиваются в лог-бинов см. ниже)
+_OUT_BANDS = 8      # лог-бинов на выход: низ тонкий, верх широкий
 _WAVE_STEP = 6      # шаг сэмпления формы волны
 _WAVE_MAX = 256     # максимум точек в срезе волны
 _INTERVAL = 30000000  # 30 мс между спектрами (~33 Гц)
+_EMIT_MS = 60       # дебаунс: раз в ~17 Гц отдаём наружу (не грузим GUI)
 # magnitude=(float){ -13.4, -18.6, ... } → числа через to_string()
 _MAG_RE = re.compile(r"magnitude=\(float\)\{([^}]*)\}")
+
+# лог-бины: границы по индексам FFT-полос (низ узкий, верх широкий)
+def _log_edges(total, out):
+    edges = [int(round(total ** (i / out))) for i in range(out + 1)]
+    # гарантируем рост и непустые бины
+    for i in range(1, len(edges)):
+        if edges[i] <= edges[i - 1]:
+            edges[i] = edges[i - 1] + 1
+    edges[-1] = min(total, edges[-1])
+    return edges
+
+_EDGES = _log_edges(_BANDS, _OUT_BANDS)
 
 
 class AudioTap(QObject):
@@ -50,6 +64,12 @@ class AudioTap(QObject):
         self._pipeline = None
         self._device = None
         self._broken = False
+        self._pending_bands = []    # буфер перед отдачей (дебаунс)
+        self._pending_level = 0.0
+        self._pending_wave = []
+        self._flush = QTimer(self)
+        self._flush.setInterval(_EMIT_MS)
+        self._flush.timeout.connect(self._emit_pending)
         self._watch = QTimer(self)
         self._watch.setInterval(5000)
         self._watch.timeout.connect(self._watchdog)
@@ -61,12 +81,14 @@ class AudioTap(QObject):
             return
         self._want = True
         self._watch.start()
+        self._flush.start()
         if self._pipeline is None:
             self._build()
 
     def stop(self):
         self._want = False
         self._watch.stop()
+        self._flush.stop()
         self._teardown()
 
     # ---------- внутренности ----------
@@ -175,8 +197,23 @@ class AudioTap(QObject):
             return
         # dB → 0..1: музыка лежит в ~-60..-20 dB, тишина ≈ -80
         vals = [max(0.0, min(1.0, (v + 60.0) / 40.0)) for v in db]
-        self.level.emit(max(vals))
-        self.bands.emit(vals)
+        # сворачиваем линейный спектр в лог-бины (низ тонкий, верх широкий)
+        out = []
+        for i in range(_OUT_BANDS):
+            lo, hi = _EDGES[i], max(_EDGES[i] + 1, _EDGES[i + 1])
+            chunk = vals[lo:hi]
+            out.append(sum(chunk) / len(chunk) if chunk else 0.0)
+        self._pending_bands = out
+        self._pending_level = max(out) if out else 0.0
+
+    def _emit_pending(self):
+        """Отдаёт накопленное наружу раз в ~17 Гц (дебаунс для GUI)."""
+        if self._pending_bands:
+            self.level.emit(self._pending_level)
+            self.bands.emit(self._pending_bands)
+        if self._pending_wave:
+            self.wave.emit(self._pending_wave)
+            self._pending_wave = []
 
     def _on_sample(self, sink):
         sample = sink.emit("pull-sample")
@@ -191,7 +228,7 @@ class AudioTap(QObject):
                 if n:
                     vals = struct.unpack_from("<%df" % n, data, 0)
                     step = max(1, n // _WAVE_MAX)
-                    self.wave.emit(list(vals[::step])[:_WAVE_MAX])
+                    self._pending_wave = list(vals[::step])[:_WAVE_MAX]
             except Exception:
                 pass
             finally:
