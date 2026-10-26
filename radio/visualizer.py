@@ -11,7 +11,7 @@
 import math
 import time
 
-from PySide6.QtCore import QElapsedTimer, Qt, QTimer
+from PySide6.QtCore import QElapsedTimer, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QColor, QLinearGradient, QPainter, QPainterPath, QPen, QRadialGradient,
 )
@@ -35,9 +35,11 @@ def _lighten(col, k=0.28):
 
 
 class GlowingWave(QWidget):
+    envChanged = Signal(float)  # сглаженная энергия 0..1 — для маскота
+
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumSize(200, 150)
+        self.setMinimumSize(200, 220)
         self._active = False       # воспроизведение идёт (или подключается)
         self._env = 0.10           # сглаженная огибающая 0..1
         self._sig = 0.0            # последний реальный уровень
@@ -87,6 +89,7 @@ class GlowingWave(QWidget):
             target = 0.08 + 0.02 * math.sin(now * 0.4)   # idle: стоим
         rate = 20.0 if target > self._env else 5.5   # атака быстрее спада
         self._env += (target - self._env) * min(1.0, dt * rate)
+        self.envChanged.emit(self._env)
 
         speed = 0.6 + 1.2 * self._env
         if not self._active:

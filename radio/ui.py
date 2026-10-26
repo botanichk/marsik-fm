@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
 )
 
 from .engine import AudioEngine, CONNECTING, ERROR, PAUSED, PLAYING, STOPPED
+from .mascot import MarsikCat
 from .stations import DEFAULT_PATH, load_stations
 from .tap import AudioTap
 from .visualizer import GlowingWave
@@ -156,9 +157,14 @@ class MainWindow(QMainWindow):
         panel_layout.addWidget(self.lbl_desc)
         panel_layout.addWidget(self.lbl_track)
 
-        # светящаяся волна: живёт между подписями и кнопками управления
+        # светящаяся волна + маскот-кот
+        viz_row = QHBoxLayout()
+        viz_row.setSpacing(12)
         self.wave = GlowingWave()
-        panel_layout.addWidget(self.wave, 1)
+        self.cat = MarsikCat()
+        viz_row.addWidget(self.wave, 1)
+        viz_row.addWidget(self.cat, 0, Qt.AlignVCenter)
+        panel_layout.addLayout(viz_row, 1)
 
         controls = QHBoxLayout()
         controls.setSpacing(10)
@@ -199,6 +205,8 @@ class MainWindow(QMainWindow):
         # аудио-тап → волна
         self.tap = AudioTap()
         self.tap.level.connect(self.wave.set_audio_level)
+        # кот питается от той же AGC-энергии, что и волна (один сигнал)
+        self.wave.envChanged.connect(self.cat.set_energy)
 
     # ---------- список станций ----------
 
@@ -292,9 +300,10 @@ class MainWindow(QMainWindow):
         self.btn_play.setIcon(self.style().standardIcon(icon))
         self.btn_stop.setEnabled(state in (CONNECTING, PLAYING, PAUSED))
 
-        # визуализатор: волна живёт, пока есть воспроизведение
+        # визуализатор: волна и кот живут, пока есть воспроизведение
         playing_like = state in (CONNECTING, PLAYING, PAUSED)
         self.wave.set_active(playing_like)
+        self.cat.set_active(playing_like)
         if playing_like:
             self.tap.start()
         else:

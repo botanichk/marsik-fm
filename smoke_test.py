@@ -108,27 +108,54 @@ check("QSettings пишутся на диск",
 settings.remove("smoke")
 settings.sync()
 
-# 8. визуализатор: рендерится, реагирует на уровень, пишет preview.png
+# 8. визуализатор: волна + кот рендерятся, реагируют на уровень, пишут preview.png
 try:
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QHBoxLayout, QWidget
+    from radio.mascot import MarsikCat
     from radio.visualizer import GlowingWave
+
     wave = GlowingWave()
-    wave.resize(640, 260)
+    cat = MarsikCat()
+    wave.envChanged.connect(cat.set_energy)   # как в ui.py
+    holder = QWidget()
+    row = QHBoxLayout(holder)
+    row.setContentsMargins(0, 0, 0, 0)
+    row.setSpacing(12)
+    row.addWidget(wave, 1)
+    row.addWidget(cat, 0, Qt.AlignVCenter)
+    holder.resize(760, 260)
     wave.set_active(True)
-    # «музыкальная» последовательность уровней для живого превью
+    cat.set_active(True)
+
+    # «музыкальная» последовательность: басы + редкие транзиенты (кот вздрагивает)
     for i in range(70):
-        wave.set_audio_level(0.35 + 0.35 * math.sin(i * 0.45)
-                             + 0.08 * math.sin(i * 2.1))
+        level = 0.25 + 0.25 * math.sin(i * 0.45) + 0.06 * math.sin(i * 2.1)
+        if i in (20, 45):          # сильный удар
+            level = 0.9
+        wave.set_audio_level(level)
         pump(0.02)
     wave.set_audio_level(0.7)
     pump(0.1)
-    pix = wave.grab()
     preview = os.path.join(HERE, "preview.png")
-    saved = (not pix.isNull()) and pix.save(preview)
-    check("волна рендерится, preview.png записан", saved, preview)
-    # idle: без сигналов волна остаётся живой, но спокойной
+    saved = (not holder.grab().isNull()) and holder.grab().save(preview)
+    check("волна+кот рендерятся, preview.png записан", saved, preview)
+
+    # кот вздрагивает на резком скачке энергии (реальный транзиент)
+    cat._flinch = 0.0
+    cat.set_energy(0.1)
+    pump(0.05)
+    cat.set_energy(0.9)
+    check("кот вздрагивает на транзиенте", cat._flinch > 0.5,
+          "flinch=%.2f" % cat._flinch)
+
+    # остановка → кот зевает, волна успокаивается
+    cat.set_active(False)
     wave.set_active(False)
+    check("кот зевает при остановке", cat._yawn > 0.5, "yawn=%.2f" % cat._yawn)
     pump(0.5)
-    check("волна рисуется и в idle", not wave.grab().isNull())
+    check("волна и кот рисуются и в idle",
+          not holder.grab().isNull())
 except Exception as exc:
     import traceback
     traceback.print_exc()
