@@ -65,6 +65,18 @@ try:
     win = MainWindow()
     check("окно собирается",
           len(win.menu.actions()) == len(stations) and win.pill is not None)
+
+    # yt-dlp: пилюля скачанных, кнопка сохранить, список файлов
+    check("скачивание: пилюля+кнопка+меню на месте",
+          win.dl_pill is not None and win.btn_save is not None
+          and win.dl_menu is not None)
+    # без трека и без yt-dlp-процесса кнопка неактивна
+    check("без трека кнопка «Сохранить» неактивна",
+          not win.btn_save.isEnabled())
+    # список скачанных: пустая папка -> пустой список, меню с заглушкой
+    win._scan_downloads()
+    check("меню скачанных строится (пустое или с файлами)",
+          len(win.dl_menu.actions()) >= 1)
 except Exception as exc:
     check("окно собирается", False, str(exc))
     win = None

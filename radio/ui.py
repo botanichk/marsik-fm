@@ -1,24 +1,30 @@
-"""Главное окно Marsik FM: сайдбар станций + визуализатор + плеер.
+"""Главное окно Marsik FM: пилюли-островы + визуализатор + плеер.
 
-Раскладка по макету: шапка с логотипом и слоганом, слева панель станций,
-в центре — визуализатор поверх оконного фонового изображения, справа —
-карточка «СЕЙЧАС В ЭФИРЕ», снизу — панель плеера (play/стоп/←/→/громкость).
+Раскладка по макету: шапка с логотипом, пилюля станции (выпадающий список),
+пилюля скачанных треков, в центре — визуализатор поверх оконного фонового
+изображения, снизу — панель плеера (play/←/→/стоп/громкость/сохранить).
 
-Вся логика (движок mpv, аудио-тап, маскот-кот, 5 режимов визуализации)
-осталась прежней — перестроен только layout и стили.
+Скачивание треков: yt-dlp ищет текущий трек по метаданным радио и
+сохраняет mp3 в downloads/ (запуск через QProcess — интерфейс не замирает).
+
+Вся логика (движок mpv, аудио-тап, 5 режимов визуализации) осталась
+прежней — маскот-кот убран из интерфейса (вернёмся к коту-бонго позже).
 """
 import os
+import re
+import shutil
 
-from PySide6.QtCore import QPoint, Qt, QSettings
+from PySide6.QtCore import (
+    QAbstractAnimation, QPropertyAnimation, QProcess, Qt, QSettings, QTimer,
+)
 from PySide6.QtGui import QColor, QPainter, QPixmap
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QMenu,
-    QMainWindow, QMessageBox, QSlider, QStackedWidget,
+    QCheckBox, QComboBox, QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel,
+    QMenu, QMainWindow, QMessageBox, QProgressBar, QSlider, QStackedWidget,
     QStyle, QToolButton, QVBoxLayout, QWidget,
 )
 
 from .engine import AudioEngine, CONNECTING, ERROR, PAUSED, PLAYING, STOPPED
-from .mascot import MarsikCat
 from .stations import DEFAULT_PATH, load_stations
 from .tap import AudioTap
 from .viz.glowing_wave import GlowingWave
@@ -26,6 +32,13 @@ from .viz.nebulous import Nebulous
 from .viz.galaxy import Galaxy
 from .viz.oscilloscope import Oscilloscope
 from .viz.aurora import Aurora
+
+# папка скачанных треков (mp3 не попадают в git)
+DL_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "downloads")
+_YTDLP = shutil.which("yt-dlp") or ""
+# yt-dlp: строка прогресса "[download]  45.2% of ..."
+_DL_PCT_RE = re.compile(r"\[download\]\s+(\d{1,3}(?:\.\d+)?)%")
 
 # состояние -> (текст статуса, цвет)
 _STATUS = {
@@ -99,6 +112,39 @@ QToolButton#pill {
 QToolButton#pill:hover {
     background: rgba(240, 200, 160, 220);
     border-color: rgba(224, 138, 60, 220);
+}
+QToolButton#save {
+    background: rgba(224, 138, 60, 235);
+    border: 1px solid rgba(180, 100, 40, 160);
+    border-radius: 10px;
+    padding: 9px 16px;
+    font-weight: bold;
+    color: #ffffff;
+}
+QToolButton#save:hover {
+    background: rgba(236, 154, 82, 245);
+}
+QToolButton#save:pressed {
+    background: rgba(200, 116, 44, 245);
+}
+QToolButton#save:disabled {
+    background: rgba(255, 252, 246, 220);
+    color: #b9ab9e;
+    border: 1px solid rgba(120, 80, 50, 46);
+}
+QProgressBar#dlProgress {
+    background: rgba(120, 80, 50, 40);
+    border: none;
+    border-radius: 5px;
+    height: 10px;
+    text-align: center;
+    font-size: 10px;
+    color: #ffffff;
+}
+QProgressBar#dlProgress::chunk {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #e8a05a, stop:1 #e06a2c);
+    border-radius: 5px;
 }
 QMenu#stationMenu {
     background: rgba(255, 250, 243, 246);
@@ -174,6 +220,21 @@ QSlider::sub-page:horizontal {
 STYLE = _STYLE
 
 
+class _FadeMenu(QMenu):
+    """Меню с плавным появлением (fade-in 140 мс)."""
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        eff = QGraphicsOpacityEffect(self)
+        eff.setOpacity(0.0)
+        self.setGraphicsEffect(eff)
+        anim = QPropertyAnimation(eff, b"opacity", self)
+        anim.setDuration(140)
+        anim.setStartValue(0.0)
+        anim.setEndValue(1.0)
+        anim.start(QAbstractAnimation.DeleteWhenStopped)
+
+
 class _Canvas(QWidget):
     """Центральный холст: рисует оконный фон (картинка + вуаль)."""
 
@@ -210,9 +271,12 @@ class MainWindow(QMainWindow):
         self.engine = AudioEngine(parent=self)
         self._playing_id = None
         self._last_error = ""
+        self._track = ""            # текущий трек (метаданные)
+        self._dl_proc = None        # активный процесс yt-dlp
 
         self._build()
         self._load_list()
+        self._count_downloads()
         self._restore()
 
         self.engine.stateChanged.connect(self._on_state)
@@ -253,7 +317,7 @@ class MainWindow(QMainWindow):
         hbox.addSpacing(24)
 
         # «динамический остров»: пилюля активной станции, клик — список
-        self.menu = QMenu(self)
+        self.menu = _FadeMenu(self)
         self.menu.setObjectName("stationMenu")
         self.pill = QToolButton()
         self.pill.setObjectName("pill")
@@ -263,13 +327,27 @@ class MainWindow(QMainWindow):
         self.pill.setToolTip("Станции (клик — список)")
         hbox.addWidget(self.pill, 0, Qt.AlignVCenter)
 
+        hbox.addSpacing(10)
+
+        # пилюля скачанных треков: список из downloads/, клик — воспроизведение
+        self.dl_menu = _FadeMenu(self)
+        self.dl_menu.setObjectName("stationMenu")
+        self.dl_menu.aboutToShow.connect(self._scan_downloads)
+        self.dl_pill = QToolButton()
+        self.dl_pill.setObjectName("pill")
+        self.dl_pill.setText("Скачанные")
+        self.dl_pill.setPopupMode(QToolButton.InstantPopup)
+        self.dl_pill.setMenu(self.dl_menu)
+        self.dl_pill.setToolTip("Скачанные треки (клик — список)")
+        hbox.addWidget(self.dl_pill, 0, Qt.AlignVCenter)
+
         hbox.addStretch(1)
         slogan = QLabel("Хорошая музыка делает день лучше ✦")
         slogan.setObjectName("slogan")
         hbox.addWidget(slogan, 0, Qt.AlignVCenter)
         root.addWidget(header)
 
-        # --- центр: визуализатор + маскот (место бывшей колонки свободно) ---
+        # --- центр: только визуализатор (место колонок освобождено) ---
         content = QHBoxLayout()
         content.setSpacing(10)
         center = QVBoxLayout()
@@ -296,41 +374,10 @@ class MainWindow(QMainWindow):
                           Oscilloscope(), Aurora()]
         for v in self.viz_modes:
             self.viz_stack.addWidget(v)
-        self.wave = self.viz_modes[0]   # для совместимости (кот и тап)
-        self.cat = MarsikCat()
+        self.wave = self.viz_modes[0]   # для совместимости (тап)
         viz_row.addWidget(self.viz_stack, 1)
-        viz_row.addWidget(self.cat, 0, Qt.AlignVCenter)
         center.addLayout(viz_row, 1)
         content.addLayout(center, 1)
-
-        # карточка «СЕЙЧАС В ЭФИРЕ»
-        card = QFrame()
-        card.setObjectName("panel")
-        card.setFixedWidth(280)
-        cc = QVBoxLayout(card)
-        cc.setContentsMargins(16, 14, 16, 14)
-        cc.setSpacing(8)
-        live = QLabel("●  СЕЙЧАС В ЭФИРЕ")
-        live.setObjectName("section")
-        live.setStyleSheet("color: #d24a2a;")
-        cc.addWidget(live)
-        self.lbl_station = QLabel("Выберите станцию")
-        self.lbl_station.setObjectName("station")
-        self.lbl_station.setWordWrap(True)
-        self.lbl_desc = QLabel("")
-        self.lbl_desc.setObjectName("desc")
-        self.lbl_desc.setWordWrap(True)
-        self.lbl_track = QLabel("")
-        self.lbl_track.setObjectName("track")
-        self.lbl_track.setWordWrap(True)
-        self.lbl_status = QLabel("")
-        self.lbl_status.setObjectName("status")
-        cc.addWidget(self.lbl_station)
-        cc.addWidget(self.lbl_desc)
-        cc.addWidget(self.lbl_track)
-        cc.addStretch(1)
-        cc.addWidget(self.lbl_status)
-        content.addWidget(card, 0)
 
         root.addLayout(content, 1)
 
@@ -370,6 +417,23 @@ class MainWindow(QMainWindow):
         ph.addWidget(btn_next)
         ph.addWidget(self.btn_stop)
         ph.addStretch(1)
+
+        # текущий трек (метаданные радио) — центр панели
+        self.lbl_track = QLabel("")
+        self.lbl_track.setObjectName("track")
+        self.lbl_track.setAlignment(Qt.AlignCenter)
+        ph.addWidget(self.lbl_track, 1)
+        ph.addStretch(1)
+
+        # кнопка «Сохранить»: yt-dlp скачивает текущий трек в downloads/
+        self.btn_save = QToolButton()
+        self.btn_save.setObjectName("save")
+        self.btn_save.setText("Сохранить")
+        self.btn_save.setToolTip(
+            "Скачать текущий трек (yt-dlp) в downloads/")
+        self.btn_save.clicked.connect(self._on_save_clicked)
+        ph.addWidget(self.btn_save, 0, Qt.AlignVCenter)
+
         vol_icon = QLabel()
         vol_icon.setPixmap(self.style().standardIcon(
             QStyle.SP_MediaVolume).pixmap(18, 18))
@@ -380,29 +444,46 @@ class MainWindow(QMainWindow):
         self.slider.setToolTip("Громкость")
         self.slider.valueChanged.connect(self.engine.set_volume)
         ph.addWidget(self.slider)
+
+        # статус движка — под панелью плеера (маленькой строкой)
+        self.lbl_status = QLabel("")
+        self.lbl_status.setObjectName("status")
+        self.lbl_status.setAlignment(Qt.AlignRight)
+        root.addWidget(self.lbl_status)
+
+        # прогресс скачивания (скрыт, когда не качаем)
+        self.dl_progress = QProgressBar()
+        self.dl_progress.setObjectName("dlProgress")
+        self.dl_progress.setRange(0, 100)
+        self.dl_progress.setTextVisible(True)
+        self.dl_progress.setFormat("%p%")
+        self.dl_progress.setFixedHeight(10)
+        self.dl_progress.hide()
+        root.addWidget(self.dl_progress)
+
         root.addWidget(player)
 
         self.setCentralWidget(central)
 
-        # аудио-тап → все режимы визуализатора + маскот
+        # аудио-тап → все режимы визуализатора
         self.tap = AudioTap()
         for v in self.viz_modes:
             self.tap.level.connect(v.set_audio_level)
             self.tap.bands.connect(v.set_bands)
             self.tap.wave.connect(v.set_wave)
-        # кот питается от текущего активного режима
         self.viz_stack.currentChanged.connect(self._on_viz_changed)
-        self.viz_modes[0].envChanged.connect(self.cat.set_energy)
 
     def _on_viz_changed(self, idx):
-        # переподключаем маскота к энергии выбранного режима
-        for v in self.viz_modes:
-            try:
-                v.envChanged.disconnect(self.cat.set_energy)
-            except Exception:
-                pass
-        cur = self.viz_stack.currentWidget()
-        cur.envChanged.connect(self.cat.set_energy)
+        # плавное появление нового режима (fade-in 180 мс)
+        w = self.viz_stack.widget(idx)
+        eff = QGraphicsOpacityEffect(w)
+        eff.setOpacity(0.0)
+        w.setGraphicsEffect(eff)
+        anim = QPropertyAnimation(eff, b"opacity", w)
+        anim.setDuration(180)
+        anim.setStartValue(0.0)
+        anim.setEndValue(1.0)
+        anim.start(QAbstractAnimation.DeleteWhenStopped)
 
     def _on_bg_toggled(self, on):
         # оконный фон (сонный кот на террасе) под всеми режимами
@@ -454,17 +535,13 @@ class MainWindow(QMainWindow):
             self.bg_check.setChecked(True)
         for st in self.stations:
             if st.get("id") == station_id:
-                self._show_station(st)
+                # пилюля показывает прошлую станцию без автозапуска
+                self.pill.setText("♪  %s" % st.get("name", ""))
                 break
 
     # ---------- действия ----------
 
-    def _show_station(self, st):
-        self.lbl_station.setText(st.get("name", ""))
-        self.lbl_desc.setText(st.get("description", ""))
-
     def _play_station(self, st):
-        self._show_station(st)
         self._playing_id = st.get("id")
         # пилюля-остров показывает активную станцию
         self.pill.setText("♪  %s" % st.get("name", ""))
@@ -480,11 +557,14 @@ class MainWindow(QMainWindow):
     def _on_prev_next(self, step):
         if not self.stations:
             return
-        idx = 0
+        idx = None
         for i, st in enumerate(self.stations):
             if st.get("id") == self._playing_id:
                 idx = i
                 break
+        if idx is None:
+            # локальный трек/ничего: ← → на край списка станций
+            idx = -1 if step > 0 else 0
         self._play_station(self.stations[(idx + step) % len(self.stations)])
 
     def _on_playpause(self):
@@ -528,18 +608,30 @@ class MainWindow(QMainWindow):
         self.btn_play.setIcon(self.style().standardIcon(icon))
         self.btn_stop.setEnabled(state in (CONNECTING, PLAYING, PAUSED))
 
-        # визуализатор: все режимы и кот живут, пока есть воспроизведение
+        # визуализатор живёт, пока есть воспроизведение
         playing_like = state in (CONNECTING, PLAYING, PAUSED)
         for v in self.viz_modes:
             v.set_active(playing_like)
-        self.cat.set_active(playing_like)
         if playing_like:
             self.tap.start()
         else:
             self.tap.stop()
+        self._update_save_state()
 
     def _on_track(self, title):
-        self.lbl_track.setText(title or "")
+        self._track = (title or "").strip()
+        self.lbl_track.setText(self._track)
+        # плавное появление нового трека (fade-in 220 мс)
+        if title:
+            eff = QGraphicsOpacityEffect(self.lbl_track)
+            eff.setOpacity(0.0)
+            self.lbl_track.setGraphicsEffect(eff)
+            anim = QPropertyAnimation(eff, b"opacity", self.lbl_track)
+            anim.setDuration(220)
+            anim.setStartValue(0.0)
+            anim.setEndValue(1.0)
+            anim.start(QAbstractAnimation.DeleteWhenStopped)
+        self._update_save_state()
 
     def _on_error(self, message):
         self._last_error = message
@@ -548,12 +640,125 @@ class MainWindow(QMainWindow):
             self.lbl_status.setStyleSheet(
                 "color: %s; font-size: 13px;" % _STATUS[ERROR][1])
 
+    # ---------- скачивание треков (yt-dlp) ----------
+
+    def _update_save_state(self):
+        # качать можно, только когда играет поток и известен трек
+        busy = self._dl_proc is not None
+        can = bool(_YTDLP and self.engine.state == PLAYING
+                   and self._track and not busy)
+        self.btn_save.setEnabled(can or busy)
+        if not busy:
+            self.btn_save.setText("Сохранить")
+            self.btn_save.setToolTip(
+                "Скачать текущий трек (yt-dlp) в downloads/"
+                if _YTDLP else
+                "yt-dlp не найден в системе — скачивание недоступно")
+
+    def _on_save_clicked(self):
+        if self._dl_proc is not None:
+            # повторный клик — отмена скачивания
+            self._dl_proc.kill()
+            return
+        if not (_YTDLP and self._track):
+            return
+        os.makedirs(DL_DIR, exist_ok=True)
+        self._dl_proc = QProcess(self)
+        self._dl_proc.setProcessChannelMode(QProcess.MergedChannels)
+        self._dl_proc.readyRead.connect(self._on_dl_output)
+        self._dl_proc.finished.connect(self._on_dl_finished)
+        # ищем трек на YouTube, качаем аудио, конвертируем в mp3
+        args = [
+            _YTDLP, "-x", "--audio-format", "mp3", "--no-progress",
+            "--newline", "--no-playlist",
+            "-o", os.path.join(DL_DIR, "%(title).120B.%(ext)s"),
+            "ytsearch1:" + self._track,
+        ]
+        self._dl_proc.start(args[0], args[1:])
+        self.dl_progress.setValue(0)
+        self.dl_progress.show()
+        self.btn_save.setText("Отмена")
+        self.btn_save.setEnabled(True)
+
+    def _on_dl_output(self):
+        data = bytes(self._dl_proc.readAllStandardOutput()).decode(
+            "utf-8", "replace")
+        m = _DL_PCT_RE.findall(data)
+        if m:
+            self.dl_progress.setValue(int(float(m[-1])))
+
+    def _on_dl_finished(self, code, status):
+        proc = self._dl_proc
+        self._dl_proc = None
+        self.dl_progress.hide()
+        proc.deleteLater()
+        if code == 0:
+            self._flash_pill("✓ Сохранено!", "#2a9d6a")
+        else:
+            self._flash_pill("Ошибка скачивания", "#d24a2a")
+        self._update_save_state()
+
+    def _flash_pill(self, text, color, ms=2500):
+        # кратковременная подсветка в пилюле скачанных
+        self.dl_pill.setText(text)
+        self.dl_pill.setStyleSheet("color: %s; font-weight: bold;" % color)
+        QTimer.singleShot(ms, self._reset_dl_pill)
+
+    def _reset_dl_pill(self):
+        if self._dl_proc is not None:
+            return   # идёт скачивание — не сбрасываем текст
+        self.dl_pill.setStyleSheet("")
+        self._count_downloads()
+
+    # ---------- скачанные треки ----------
+
+    def _downloads_list(self):
+        if not os.path.isdir(DL_DIR):
+            return []
+        try:
+            names = [n for n in os.listdir(DL_DIR)
+                     if n.lower().endswith((".mp3", ".ogg", ".flac", ".m4a"))]
+        except OSError:
+            return []
+        # новые сверху
+        names.sort(key=lambda n: os.path.getmtime(
+            os.path.join(DL_DIR, n)), reverse=True)
+        return names
+
+    def _count_downloads(self):
+        n = len(self._downloads_list())
+        self.dl_pill.setText(
+            "Скачанные (%d)" % n if n else "Скачанные")
+
+    def _scan_downloads(self):
+        self.dl_menu.clear()
+        files = self._downloads_list()
+        if not files:
+            act = self.dl_menu.addAction("Пока ничего не скачано")
+            act.setEnabled(False)
+            return
+        for name in files:
+            act = self.dl_menu.addAction(os.path.splitext(name)[0])
+            act.triggered.connect(
+                lambda c=False, p=os.path.join(DL_DIR, name):
+                    self._play_local(p))
+
+    def _play_local(self, path):
+        # локальный трек: показываем имя файла в пилюле станции
+        self._playing_id = None
+        self.pill.setText("♪  %s" % os.path.splitext(
+            os.path.basename(path))[0])
+        self.engine.play(path)
+
     # ---------- закрытие ----------
 
     def closeEvent(self, event):
         self.settings.setValue("geometry", self.saveGeometry())
         self.settings.setValue("volume", self.slider.value())
         self.settings.setValue("station", self._playing_id or "")
+        if self._dl_proc is not None:
+            self._dl_proc.kill()   # без сирот yt-dlp
+            self._dl_proc.waitForFinished(2000)
         self.tap.stop()
         self.engine.shutdown()
         super().closeEvent(event)
