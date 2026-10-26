@@ -70,5 +70,35 @@
     "name": "Sonic Universe",
     "description": "Avant-garde jazz from around the world.",
     "url": "https://ice1.somafm.com/sonicuniverse-128-mp3"
+  },
+  {
+    "id": "181.fm_—_front_porch",
+    "name": "181.FM — Front Porch",
+    "description": "блюграсс",
+    "url": "https://listen.181fm.com/181-frontporch_128k.mp3"
+  },
+  {
+    "id": "deltablues",
+    "name": "Delta Blues",
+    "description": "Дельта-блюз: корни, кабаки и гитары Миссисипи.",
+    "url": "http://79.120.77.11:8002/deltablues"
+  },
+  {
+    "id": "country",
+    "name": "Country",
+    "description": "Кантри: традиционное и ново-классическое.",
+    "url": "http://79.120.77.11:8002/country"
+  },
+  {
+    "id": "blues",
+    "name": "Blues",
+    "description": "Блюз: чикагский, электрический и классический.",
+    "url": "http://79.120.77.11:8002/blues"
+  },
+  {
+    "id": "oldies",
+    "name": "Oldies",
+    "description": "Золотая классика — oldies.",
+    "url": "http://79.120.77.11:8002/oldies"
   }
 ]
