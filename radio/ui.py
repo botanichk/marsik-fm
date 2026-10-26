@@ -1,4 +1,4 @@
-"""Главное окно: список станций + плеер (тёмная тема)."""
+"""Главное окно Marsik FM: список станций + плеер + светящаяся волна."""
 from PySide6.QtCore import Qt, QSettings
 from PySide6.QtWidgets import (
     QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMainWindow,
@@ -8,6 +8,8 @@ from PySide6.QtWidgets import (
 
 from .engine import AudioEngine, CONNECTING, ERROR, PAUSED, PLAYING, STOPPED
 from .stations import DEFAULT_PATH, load_stations
+from .tap import AudioTap
+from .visualizer import GlowingWave
 
 # состояние -> (текст статуса, цвет)
 _STATUS = {
@@ -18,7 +20,7 @@ _STATUS = {
     ERROR: ("Ошибка", "#ff6b6b"),
 }
 
-STYLE = """
+_STYLE = """
 QMainWindow, QWidget {
     background: #14161c;
     color: #e6e9ef;
@@ -98,11 +100,13 @@ QSplitter::handle {
 }
 """
 
+STYLE = _STYLE
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("РадоФМ")
+        self.setWindowTitle("Marsik FM")
         self.resize(940, 580)
         self.settings = QSettings("radiofm", "radiofm")
         self.engine = AudioEngine(parent=self)
@@ -126,7 +130,7 @@ class MainWindow(QMainWindow):
         root.setContentsMargins(14, 12, 14, 12)
         root.setSpacing(10)
 
-        header = QLabel("📻 РадоФМ")
+        header = QLabel("📻 Marsik FM")
         header.setObjectName("header")
         root.addWidget(header)
 
@@ -151,7 +155,10 @@ class MainWindow(QMainWindow):
         panel_layout.addWidget(self.lbl_station)
         panel_layout.addWidget(self.lbl_desc)
         panel_layout.addWidget(self.lbl_track)
-        panel_layout.addStretch(1)
+
+        # светящаяся волна: живёт между подписями и кнопками управления
+        self.wave = GlowingWave()
+        panel_layout.addWidget(self.wave, 1)
 
         controls = QHBoxLayout()
         controls.setSpacing(10)
@@ -189,6 +196,10 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(central)
 
+        # аудио-тап → волна
+        self.tap = AudioTap()
+        self.tap.level.connect(self.wave.set_audio_level)
+
     # ---------- список станций ----------
 
     def _load_list(self):
@@ -196,7 +207,7 @@ class MainWindow(QMainWindow):
             self.stations = load_stations()
         except Exception as exc:
             QMessageBox.warning(
-                self, "РадоФМ",
+                self, "Marsik FM",
                 "Не удалось прочитать файл станций:\n%s\n\n%s\n\n"
                 "Исправьте файл и перезапустите приложение."
                 % (DEFAULT_PATH, exc))
@@ -281,6 +292,14 @@ class MainWindow(QMainWindow):
         self.btn_play.setIcon(self.style().standardIcon(icon))
         self.btn_stop.setEnabled(state in (CONNECTING, PLAYING, PAUSED))
 
+        # визуализатор: волна живёт, пока есть воспроизведение
+        playing_like = state in (CONNECTING, PLAYING, PAUSED)
+        self.wave.set_active(playing_like)
+        if playing_like:
+            self.tap.start()
+        else:
+            self.tap.stop()
+
     def _on_track(self, title):
         self.lbl_track.setText(title or "")
 
@@ -300,5 +319,6 @@ class MainWindow(QMainWindow):
         if item is not None:
             self.settings.setValue("station",
                                    item.data(Qt.UserRole).get("id", ""))
+        self.tap.stop()
         self.engine.shutdown()
         super().closeEvent(event)

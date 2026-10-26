@@ -1,23 +1,26 @@
-"""Самопроверка MVP без экрана и без звука.
+"""Самопроверка MVP + визуализатора без экрана и без звука.
 
-Проверяет: загрузку станций, подъём mpv, IPC-связь, реальное воспроизведение
-потока (в ao=null), паузу, остановку, чистое завершение и сборку окна.
+Проверяет: загрузку станций, сборку окна, подъём mpv, IPC-связь, реальное
+воспроизведение потока (ao=null), паузу/стоп, чистое завершение, запись
+настроек, рендер волны и работу аудио-тапа. Рисует preview.png.
 
 Запуск:  python3 smoke_test.py
 """
+import math
 import os
 import sys
 import time
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QCoreApplication, Qt  # noqa: E402
+from PySide6.QtCore import QSettings  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from radio.engine import AudioEngine, PAUSED, PLAYING, STOPPED  # noqa: E402
 from radio.stations import load_stations  # noqa: E402
 
 URL = "https://ice1.somafm.com/groovesalad-128-mp3"
+HERE = os.path.dirname(os.path.abspath(__file__))
 FAILURES = []
 
 
@@ -26,6 +29,13 @@ def check(name, ok, detail=""):
                        (" — " + detail) if detail and not ok else ""))
     if not ok:
         FAILURES.append(name)
+
+
+def pump(seconds):
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.03)
 
 
 def wait_state(engine, wanted, timeout):
@@ -87,7 +97,6 @@ engine.shutdown()
 check("mpv завершён (сирот нет)", not engine.is_running)
 
 # 7. настройки на месте
-from PySide6.QtCore import QSettings  # noqa: E402
 settings = QSettings("radiofm", "radiofm")
 settings.setValue("smoke", "1")
 settings.sync()
@@ -98,6 +107,56 @@ check("QSettings пишутся на диск",
       conf_file)
 settings.remove("smoke")
 settings.sync()
+
+# 8. визуализатор: рендерится, реагирует на уровень, пишет preview.png
+try:
+    from radio.visualizer import GlowingWave
+    wave = GlowingWave()
+    wave.resize(640, 260)
+    wave.set_active(True)
+    # «музыкальная» последовательность уровней для живого превью
+    for i in range(70):
+        wave.set_audio_level(0.35 + 0.35 * math.sin(i * 0.45)
+                             + 0.08 * math.sin(i * 2.1))
+        pump(0.02)
+    wave.set_audio_level(0.7)
+    pump(0.1)
+    pix = wave.grab()
+    preview = os.path.join(HERE, "preview.png")
+    saved = (not pix.isNull()) and pix.save(preview)
+    check("волна рендерится, preview.png записан", saved, preview)
+    # idle: без сигналов волна остаётся живой, но спокойной
+    wave.set_active(False)
+    pump(0.5)
+    check("волна рисуется и в idle", not wave.grab().isNull())
+except Exception as exc:
+    import traceback
+    traceback.print_exc()
+    check("визуализатор", False, str(exc))
+
+# 9. аудио-тап: буферы идут с monitor-порта (реальные данные доступны)
+try:
+    from radio.tap import AudioTap
+    if not AudioTap.available:
+        print("skip аудио-тап: GStreamer недоступен")
+    else:
+        tap = AudioTap()
+        levels = []
+        tap_errors = []
+        tap.level.connect(levels.append)
+        tap.failed.connect(tap_errors.append)
+        tap.start()
+        pump(2.5)
+        tap.stop()
+        check("аудио-тап отдаёт уровень (~43/сек)",
+              len(levels) >= 10,
+              "уровней: %d, ошибки: %s" % (len(levels), tap_errors))
+        if tap_errors:
+            print("     тап сообщил: %s" % tap_errors[0])
+except Exception as exc:
+    import traceback
+    traceback.print_exc()
+    check("аудио-тап", False, str(exc))
 
 if win is not None:
     win.close()
