@@ -8,7 +8,7 @@ DEFAULT_PATH = PROJECT_DIR / "stations.json"
 
 def load_stations(path=DEFAULT_PATH):
     """Читает stations.json. Бросает исключение при ошибке — вызывающий покажет."""
-    data = json.loads(path.read_text(encoding="utf-8"))
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(data, list):
         raise ValueError("ожидался JSON-список станций")
     stations = []
@@ -24,6 +24,6 @@ def load_stations(path=DEFAULT_PATH):
 
 
 def save_stations(stations, path=DEFAULT_PATH):
-    path.write_text(
+    Path(path).write_text(
         json.dumps(stations, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8")

@@ -22,13 +22,14 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import QColor, QPainter, QPixmap
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel,
-    QMenu, QMainWindow, QMessageBox, QProgressBar, QSlider, QStackedWidget,
+    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QFrame,
+    QGraphicsOpacityEffect, QHBoxLayout, QLabel, QLineEdit, QMenu,
+    QMainWindow, QMessageBox, QProgressBar, QSlider, QStackedWidget,
     QStyle, QToolButton, QVBoxLayout, QWidget,
 )
 
 from .engine import AudioEngine, CONNECTING, ERROR, PAUSED, PLAYING, STOPPED
-from .stations import DEFAULT_PATH, load_stations
+from .stations import DEFAULT_PATH, load_stations, save_stations
 from .tap import AudioTap
 from .viz.glowing_wave import GlowingWave
 from .viz.nebulous import Nebulous
@@ -329,6 +330,8 @@ class MainWindow(QMainWindow):
         self.pill.setPopupMode(QToolButton.InstantPopup)
         self.pill.setMenu(self.menu)
         self.pill.setToolTip("Станции (клик — список)")
+        # меню пересобирается при открытии: пункт «Удалить» всегда актуален
+        self.menu.aboutToShow.connect(self._rebuild_menu)
         hbox.addWidget(self.pill, 0, Qt.AlignVCenter)
 
         hbox.addSpacing(10)
@@ -515,6 +518,11 @@ class MainWindow(QMainWindow):
                 "Исправьте файл и перезапустите приложение."
                 % (DEFAULT_PATH, exc))
             self.stations = []
+        self._rebuild_menu()
+
+    def _rebuild_menu(self):
+        """Пересобирает меню: станции + разделитель + добавить/удалить."""
+        self.menu.clear()
         for st in self.stations:
             act = self.menu.addAction(
                 "%s — %s" % (st["name"], st["description"] or "Radio"))
@@ -524,6 +532,93 @@ class MainWindow(QMainWindow):
             act.setToolTip(tooltip)
             act.triggered.connect(
                 lambda c=False, s=st: self._on_menu_station(s))
+        self.menu.addSeparator()
+        act_add = self.menu.addAction("＋  Добавить станцию…")
+        act_add.triggered.connect(self._on_add_station)
+        # удалить можно только выбранную (её имя показывает пилюля)
+        cur = self._selected_station()
+        if cur is not None:
+            act_del = self.menu.addAction("✕  Удалить «%s»" % cur["name"])
+            act_del.triggered.connect(self._on_delete_station)
+        else:
+            act_del = self.menu.addAction("✕  Удалить станцию")
+            act_del.setEnabled(False)
+
+    def _selected_station(self):
+        """Станция, показанная в пилюле (по игре или по QSettings)."""
+        want = self._playing_id or self.settings.value("station", "")
+        for st in self.stations:
+            if st.get("id") == want:
+                return st
+        return None
+
+    # ---------- добавление/удаление станций ----------
+
+    def _on_add_station(self):
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Новая станция")
+        form = QFormLayout(dlg)
+        ed_name = QLineEdit(dlg)
+        ed_name.setPlaceholderText("Например: Boot Liquor")
+        ed_url = QLineEdit(dlg)
+        ed_url.setPlaceholderText("https://ice1.somafm.com/…-128-mp3")
+        ed_desc = QLineEdit(dlg)
+        ed_desc.setPlaceholderText("Описание (необязательно)")
+        form.addRow("Название:", ed_name)
+        form.addRow("URL потока:", ed_url)
+        form.addRow("Описание:", ed_desc)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dlg)
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        form.addRow(buttons)
+        if dlg.exec() != QDialog.Accepted:
+            return
+
+        name = ed_name.text().strip()
+        url = ed_url.text().strip()
+        # валидация до записи: пустое имя/URL и не-http протокол
+        if not name:
+            QMessageBox.warning(self, "Marsik FM", "Введите название станции.")
+            return
+        if not url.startswith(("http://", "https://")):
+            QMessageBox.warning(
+                self, "Marsik FM",
+                "URL должен начинаться с http:// или https://")
+            return
+        st_id = name.lower().replace(" ", "_")
+        base, n = st_id, 2
+        while any(s.get("id") == st_id for s in self.stations):
+            st_id = "%s_%d" % (base, n)
+            n += 1
+        self.stations.append({
+            "id": st_id, "name": name,
+            "description": ed_desc.text().strip(), "url": url,
+        })
+        save_stations(self.stations)
+        self._rebuild_menu()
+        self._flash_pill("Станция добавлена", "#2a9d6a")
+
+    def _on_delete_station(self):
+        st = self._selected_station()
+        if st is None:
+            return
+        answer = QMessageBox.question(
+            self, "Marsik FM",
+            "Удалить станцию «%s»?" % st["name"],
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if answer != QMessageBox.Yes:
+            return
+        self.stations.remove(st)
+        save_stations(self.stations)
+        # если она играла — останавливаем и сбрасываем пилюлю
+        if st.get("id") == self._playing_id:
+            self.engine.stop()
+            self._playing_id = None
+            self.pill.setText("Выберите станцию")
+            self.settings.setValue("station", "")
+        self._rebuild_menu()
+        self._flash_pill("Станция удалена", "#d24a2a")
 
     def _restore(self):
         geom = self.settings.value("geometry")

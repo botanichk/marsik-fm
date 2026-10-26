@@ -63,8 +63,16 @@ except Exception as exc:
 try:
     from radio.ui import MainWindow
     win = MainWindow()
+    real = [a for a in win.menu.actions() if not a.isSeparator()]
     check("окно собирается",
-          len(win.menu.actions()) == len(stations) and win.pill is not None)
+          len(real) == len(stations) + 2 and win.pill is not None,
+          "actions=%d" % len(real))
+    # добавление/удаление: служебные пункты в меню
+    texts = [a.text() for a in real]
+    check("меню: пункты «Добавить» и «Удалить» на месте",
+          any("Добавить станцию" in t for t in texts)
+          and any("Удалить станцию" in t or "Удалить «" in t for t in texts),
+          texts[-2:])
 
     # yt-dlp: пилюля скачанных, кнопка сохранить, список файлов
     check("скачивание: пилюля+кнопка+меню на месте",
@@ -128,6 +136,20 @@ eng2._on_property({"name": "media-title", "data": "Some Track"})
 check("media-title локального файла проходит", got == ["Some Track"],
       "got=%s" % got)
 eng2.shutdown()
+
+# 6c. станции: сохранение/загрузка roundtrip (для добавления из UI)
+try:
+    import tempfile
+    from radio.stations import save_stations, load_stations
+    sample = [{"id": "boot_liquor", "name": "Boot Liquor",
+               "description": "Americana Roots", "url": "https://x/abc.mp3"}]
+    with tempfile.TemporaryDirectory() as td:
+        p = os.path.join(td, "stations.json")
+        save_stations(sample, path=p)
+        back = load_stations(path=p)
+    check("станции: save/load roundtrip", back == sample, "back=%s" % back)
+except Exception as exc:
+    check("станции: save/load roundtrip", False, str(exc))
 
 # 7. настройки на месте
 settings = QSettings("radiofm", "radiofm")
