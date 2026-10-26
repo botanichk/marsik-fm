@@ -1,12 +1,20 @@
-"""Главное окно Marsik FM: список станций + плеер + светящаяся волна."""
+"""Главное окно Marsik FM: сайдбар станций + визуализатор + плеер.
+
+Раскладка по макету: шапка с логотипом и слоганом, слева панель станций,
+в центре — визуализатор поверх оконного фонового изображения, справа —
+карточка «СЕЙЧАС В ЭФИРЕ», снизу — панель плеера (play/стоп/←/→/громкость).
+
+Вся логика (движок mpv, аудио-тап, маскот-кот, 5 режимов визуализации)
+осталась прежней — перестроен только layout и стили.
+"""
 import os
 
 from PySide6.QtCore import Qt, QSettings
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QColor, QPainter, QPixmap
 from PySide6.QtWidgets import (
-    QCheckBox, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMainWindow,
-    QMessageBox, QSlider, QSplitter, QStyle, QToolButton, QVBoxLayout,
-    QWidget, QComboBox, QStackedWidget,
+    QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QListWidget,
+    QListWidgetItem, QMainWindow, QMessageBox, QSlider, QStackedWidget,
+    QStyle, QToolButton, QVBoxLayout, QWidget,
 )
 
 from .engine import AudioEngine, CONNECTING, ERROR, PAUSED, PLAYING, STOPPED
@@ -25,97 +33,168 @@ _STATUS = {
     CONNECTING: ("Подключение…", "#f0b429"),
     PLAYING: ("Играет", "#3ecf8e"),
     PAUSED: ("Пауза", "#f0b429"),
-    ERROR: ("Ошибка", "#ff6b6b"),
+    ERROR: ("Ошибка", "#ff6b4a"),
 }
 
 _STYLE = """
-QMainWindow, QWidget {
-    background: #14161c;
+QWidget {
     color: #e6e9ef;
     font-size: 14px;
 }
-QLabel#header {
-    font-size: 17px;
-    font-weight: bold;
-    color: #ff6b4a;
+QLabel#logo {
+    font-size: 24px;
+    font-weight: 800;
+    color: #ffffff;
+}
+QLabel#tagline {
+    font-size: 11px;
+    color: #f0b429;
+    letter-spacing: 2px;
+}
+QLabel#slogan {
+    font-size: 13px;
+    color: #c9a87c;
+    font-style: italic;
+}
+QLabel#section {
+    font-size: 12px;
+    color: #9aa3b5;
+    letter-spacing: 2px;
 }
 QLabel#station {
     font-size: 20px;
     font-weight: bold;
+    color: #ffffff;
 }
 QLabel#desc {
     color: #9aa3b5;
     font-size: 13px;
 }
 QLabel#track {
-    color: #4f9dff;
-    font-size: 15px;
+    color: #ff9a4d;
+    font-size: 14px;
 }
 QLabel#status {
     font-size: 13px;
 }
+QFrame#panel {
+    background: rgba(16, 18, 26, 205);
+    border: 1px solid rgba(255, 255, 255, 26);
+    border-radius: 16px;
+}
+QFrame#playerBar {
+    background: rgba(16, 18, 26, 215);
+    border: 1px solid rgba(255, 255, 255, 26);
+    border-radius: 22px;
+}
 QListWidget {
-    background: #1b1e26;
-    border: 1px solid #262b36;
-    border-radius: 8px;
-    padding: 4px;
+    background: transparent;
+    border: none;
     outline: none;
 }
 QListWidget::item {
-    padding: 9px 10px;
-    border-radius: 6px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    margin: 1px 2px;
 }
 QListWidget::item:hover {
-    background: #222734;
+    background: rgba(255, 255, 255, 22);
 }
 QListWidget::item:selected {
-    background: #2b3a52;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 rgba(255, 138, 61, 220), stop:1 rgba(214, 93, 42, 220));
     color: #ffffff;
 }
 QToolButton {
-    background: #232833;
-    border: 1px solid #2c3240;
+    background: rgba(35, 40, 51, 200);
+    border: 1px solid rgba(255, 255, 255, 34);
     border-radius: 10px;
-    padding: 10px;
+    padding: 9px;
 }
 QToolButton:hover {
-    background: #2b3242;
+    background: rgba(52, 60, 78, 220);
 }
 QToolButton:pressed {
-    background: #364054;
+    background: rgba(70, 80, 104, 230);
 }
 QToolButton:disabled {
     color: #555c6b;
 }
+QToolButton#play {
+    background: rgba(30, 26, 24, 220);
+    border: 2px solid #ff9a4d;
+    border-radius: 25px;
+    padding: 12px;
+}
+QToolButton#play:hover {
+    background: rgba(255, 154, 77, 60);
+}
+QComboBox {
+    background: rgba(27, 30, 38, 220);
+    border: 1px solid rgba(255, 255, 255, 34);
+    border-radius: 8px;
+    padding: 5px 10px;
+}
+QComboBox:hover {
+    border-color: rgba(255, 154, 77, 120);
+}
+QCheckBox {
+    color: #9aa3b5;
+}
+QCheckBox:hover {
+    color: #e6e9ef;
+}
 QSlider::groove:horizontal {
     height: 4px;
-    background: #2c3240;
+    background: rgba(255, 255, 255, 40);
     border-radius: 2px;
 }
 QSlider::handle:horizontal {
     width: 14px;
     margin: -5px 0;
     border-radius: 7px;
-    background: #4f9dff;
+    background: #ff9a4d;
 }
 QSlider::sub-page:horizontal {
-    background: #4f9dff;
+    background: #ff9a4d;
     border-radius: 2px;
-}
-QSplitter::handle {
-    background: #14161c;
-    width: 8px;
 }
 """
 
 STYLE = _STYLE
 
 
+class _Canvas(QWidget):
+    """Центральный холст: рисует оконный фон (картинка + вуаль)."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._pixmap = None
+
+    def set_pixmap(self, pm):
+        self._pixmap = pm
+        self.update()
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        if self._pixmap is not None and not self._pixmap.isNull():
+            scaled = self._pixmap.scaled(
+                self.size(), Qt.KeepAspectRatioByExpanding,
+                Qt.SmoothTransformation)
+            p.drawPixmap(
+                (self.width() - scaled.width()) // 2,
+                (self.height() - scaled.height()) // 2, scaled)
+            p.fillRect(self.rect(), QColor(4, 6, 14, 150))
+        else:
+            p.fillRect(self.rect(), QColor(13, 15, 21))
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Marsik FM")
-        self.resize(940, 580)
+        self.resize(1100, 640)
+        self.setMinimumSize(880, 560)
         self.settings = QSettings("radiofm", "radiofm")
         self.engine = AudioEngine(parent=self)
         self._playing_id = None
@@ -133,24 +212,92 @@ class MainWindow(QMainWindow):
     # ---------- сборка интерфейса ----------
 
     def _build(self):
-        central = QWidget()
+        central = _Canvas()
         root = QVBoxLayout(central)
         root.setContentsMargins(14, 12, 14, 12)
         root.setSpacing(10)
 
-        header = QLabel("📻 Marsik FM")
-        header.setObjectName("header")
+        # --- шапка: логотип + слоган ---
+        header = QFrame()
+        header.setObjectName("panel")
+        hbox = QHBoxLayout(header)
+        hbox.setContentsMargins(18, 8, 18, 8)
+        logo_col = QVBoxLayout()
+        logo = QLabel("✦ MARSIK FM")
+        logo.setObjectName("logo")
+        tag = QLabel("GOOD MUSIC · GOOD VIBES · ALWAYS")
+        tag.setObjectName("tagline")
+        logo_col.addWidget(logo)
+        logo_col.addWidget(tag)
+        hbox.addLayout(logo_col)
+        hbox.addStretch(1)
+        slogan = QLabel("Хорошая музыка делает день лучше ✦")
+        slogan.setObjectName("slogan")
+        hbox.addWidget(slogan, 0, Qt.AlignVCenter)
         root.addWidget(header)
 
+        # --- центр: сайдбар | визуализатор | карточка ---
+        content = QHBoxLayout()
+        content.setSpacing(10)
+
+        # сайдбар станций
+        sidebar = QFrame()
+        sidebar.setObjectName("panel")
+        sidebar.setFixedWidth(250)
+        sb = QVBoxLayout(sidebar)
+        sb.setContentsMargins(10, 12, 10, 12)
+        sb.setSpacing(6)
+        section = QLabel("СТАНЦИИ")
+        section.setObjectName("section")
+        sb.addWidget(section)
         self.list = QListWidget()
-        self.list.setMinimumWidth(300)
         self.list.itemClicked.connect(self._on_station_clicked)
+        sb.addWidget(self.list, 1)
+        content.addWidget(sidebar, 0)
 
-        panel = QWidget()
-        panel_layout = QVBoxLayout(panel)
-        panel_layout.setContentsMargins(16, 8, 8, 8)
-        panel_layout.setSpacing(8)
+        # центральная колонка: визуализатор + маскот
+        center = QVBoxLayout()
+        center.setSpacing(8)
+        viz_top = QHBoxLayout()
+        self.viz_combo = QComboBox()
+        self.viz_combo.addItems(
+            ["Glowing Wave", "Nebulous", "Galaxy", "Oscilloscope", "Aurora"])
+        self.viz_combo.setToolTip("Режим визуализатора")
+        self.viz_combo.currentIndexChanged.connect(
+            lambda i: self.viz_stack.setCurrentIndex(i))
+        self.bg_check = QCheckBox("Фон с котом")
+        self.bg_check.setToolTip("Фоновое изображение под визуализатором")
+        self.bg_check.toggled.connect(self._on_bg_toggled)
+        viz_top.addWidget(self.viz_combo)
+        viz_top.addWidget(self.bg_check)
+        viz_top.addStretch(1)
+        center.addLayout(viz_top)
 
+        viz_row = QHBoxLayout()
+        viz_row.setSpacing(12)
+        self.viz_stack = QStackedWidget()
+        self.viz_modes = [GlowingWave(), Nebulous(), Galaxy(),
+                          Oscilloscope(), Aurora()]
+        for v in self.viz_modes:
+            self.viz_stack.addWidget(v)
+        self.wave = self.viz_modes[0]   # для совместимости (кот и тап)
+        self.cat = MarsikCat()
+        viz_row.addWidget(self.viz_stack, 1)
+        viz_row.addWidget(self.cat, 0, Qt.AlignVCenter)
+        center.addLayout(viz_row, 1)
+        content.addLayout(center, 1)
+
+        # карточка «СЕЙЧАС В ЭФИРЕ»
+        card = QFrame()
+        card.setObjectName("panel")
+        card.setFixedWidth(280)
+        cc = QVBoxLayout(card)
+        cc.setContentsMargins(16, 14, 16, 14)
+        cc.setSpacing(8)
+        live = QLabel("●  СЕЙЧАС В ЭФИРЕ")
+        live.setObjectName("section")
+        live.setStyleSheet("color: #ff6b4a;")
+        cc.addWidget(live)
         self.lbl_station = QLabel("Выберите станцию")
         self.lbl_station.setObjectName("station")
         self.lbl_station.setWordWrap(True)
@@ -160,75 +307,64 @@ class MainWindow(QMainWindow):
         self.lbl_track = QLabel("")
         self.lbl_track.setObjectName("track")
         self.lbl_track.setWordWrap(True)
-        panel_layout.addWidget(self.lbl_station)
-        panel_layout.addWidget(self.lbl_desc)
-        panel_layout.addWidget(self.lbl_track)
+        self.lbl_status = QLabel("")
+        self.lbl_status.setObjectName("status")
+        cc.addWidget(self.lbl_station)
+        cc.addWidget(self.lbl_desc)
+        cc.addWidget(self.lbl_track)
+        cc.addStretch(1)
+        cc.addWidget(self.lbl_status)
+        content.addWidget(card, 0)
 
-        # визуализатор (переключаемый) + маскот-кот
-        viz_row = QHBoxLayout()
-        viz_row.setSpacing(12)
-        self.viz_stack = QStackedWidget()
-        self.viz_modes = [GlowingWave(), Nebulous(), Galaxy(),
-                          Oscilloscope(), Aurora()]
-        for v in self.viz_modes:
-            self.viz_stack.addWidget(v)
-        self.wave = self.viz_modes[0]   # для совместимости (кот и тап)
-        self.viz_combo = QComboBox()
-        self.viz_combo.addItems(
-            ["Glowing Wave", "Nebulous", "Galaxy", "Oscilloscope", "Aurora"])
-        self.viz_combo.setToolTip("Режим визуализатора")
-        self.viz_combo.currentIndexChanged.connect(
-            lambda i: self.viz_stack.setCurrentIndex(i))
-        # фон-картинка (сонный кот на террасе) — по желанию
-        self.bg_check = QCheckBox("Фон с котом")
-        self.bg_check.setToolTip("Фоновое изображение под визуализатором")
-        self.bg_check.toggled.connect(self._on_bg_toggled)
-        viz_top = QHBoxLayout()
-        viz_top.addWidget(self.viz_combo)
-        viz_top.addWidget(self.bg_check)
-        viz_top.addStretch(1)
-        viz_col = QVBoxLayout()
-        viz_col.setSpacing(6)
-        viz_col.addLayout(viz_top)
-        viz_col.addWidget(self.viz_stack, 1)
-        self.cat = MarsikCat()
-        viz_row.addLayout(viz_col, 1)
-        viz_row.addWidget(self.cat, 0, Qt.AlignVCenter)
-        panel_layout.addLayout(viz_row, 1)
+        root.addLayout(content, 1)
 
-        controls = QHBoxLayout()
-        controls.setSpacing(10)
+        # --- нижняя панель плеера ---
+        player = QFrame()
+        player.setObjectName("playerBar")
+        ph = QHBoxLayout(player)
+        ph.setContentsMargins(20, 8, 20, 8)
+        ph.setSpacing(10)
         self.btn_play = QToolButton()
+        self.btn_play.setObjectName("play")
         self.btn_play.setFixedSize(52, 52)
-        self.btn_play.setIconSize(self.btn_play.size() * 0.5)
+        self.btn_play.setIconSize(self.btn_play.size() * 0.42)
         self.btn_play.clicked.connect(self._on_playpause)
         self.btn_stop = QToolButton()
-        self.btn_stop.setFixedSize(52, 52)
-        self.btn_stop.setIconSize(self.btn_stop.size() * 0.5)
+        self.btn_stop.setFixedSize(44, 44)
+        self.btn_stop.setIconSize(self.btn_stop.size() * 0.45)
         self.btn_stop.setIcon(
             self.style().standardIcon(QStyle.SP_MediaStop))
         self.btn_stop.clicked.connect(self._on_stop)
+        btn_prev = QToolButton()
+        btn_prev.setFixedSize(44, 44)
+        btn_prev.setIconSize(btn_prev.size() * 0.45)
+        btn_prev.setIcon(
+            self.style().standardIcon(QStyle.SP_MediaSkipBackward))
+        btn_prev.setToolTip("Предыдущая станция")
+        btn_prev.clicked.connect(lambda: self._on_prev_next(-1))
+        btn_next = QToolButton()
+        btn_next.setFixedSize(44, 44)
+        btn_next.setIconSize(btn_next.size() * 0.45)
+        btn_next.setIcon(
+            self.style().standardIcon(QStyle.SP_MediaSkipForward))
+        btn_next.setToolTip("Следующая станция")
+        btn_next.clicked.connect(lambda: self._on_prev_next(1))
+        ph.addWidget(btn_prev)
+        ph.addWidget(self.btn_play)
+        ph.addWidget(btn_next)
+        ph.addWidget(self.btn_stop)
+        ph.addStretch(1)
+        vol_icon = QLabel()
+        vol_icon.setPixmap(self.style().standardIcon(
+            QStyle.SP_MediaVolume).pixmap(18, 18))
+        ph.addWidget(vol_icon)
         self.slider = QSlider(Qt.Horizontal)
         self.slider.setRange(0, 100)
-        self.slider.setFixedWidth(170)
+        self.slider.setFixedWidth(180)
         self.slider.setToolTip("Громкость")
         self.slider.valueChanged.connect(self.engine.set_volume)
-        controls.addWidget(self.btn_play)
-        controls.addWidget(self.btn_stop)
-        controls.addStretch(1)
-        controls.addWidget(self.slider)
-        panel_layout.addLayout(controls)
-
-        self.lbl_status = QLabel("")
-        self.lbl_status.setObjectName("status")
-        root.addWidget(self.lbl_status)
-
-        splitter = QSplitter(Qt.Horizontal)
-        splitter.addWidget(self.list)
-        splitter.addWidget(panel)
-        splitter.setStretchFactor(0, 2)
-        splitter.setStretchFactor(1, 3)
-        root.addWidget(splitter, 1)
+        ph.addWidget(self.slider)
+        root.addWidget(player)
 
         self.setCentralWidget(central)
 
@@ -253,7 +389,7 @@ class MainWindow(QMainWindow):
         cur.envChanged.connect(self.cat.set_energy)
 
     def _on_bg_toggled(self, on):
-        # фон-картинка под всеми режимами (сонный кот на террасе)
+        # оконный фон (сонный кот на террасе) под всеми режимами
         pm = None
         if on:
             path = os.path.join(
@@ -261,8 +397,9 @@ class MainWindow(QMainWindow):
                 "backgrounds", "balcony.png")
             if os.path.exists(path):
                 pm = QPixmap(path)
+        self.centralWidget().set_pixmap(pm)
         for v in self.viz_modes:
-            v.set_background(pm)
+            v.set_window_bg(pm is not None)
         self.settings.setValue("bg_image", bool(on))
 
     # ---------- список станций ----------
@@ -278,7 +415,10 @@ class MainWindow(QMainWindow):
                 % (DEFAULT_PATH, exc))
             self.stations = []
         for st in self.stations:
-            item = QListWidgetItem(st["name"])
+            # две строки, как в макете: имя + описание (rich text не работает
+            # в QListWidget этой сборки Qt — обычный текст в две строки)
+            item = QListWidgetItem(
+                "%s\n%s" % (st["name"], st["description"] or "Radio"))
             item.setData(Qt.UserRole, st)
             tooltip = st["description"] or st["url"]
             if st["description"]:
@@ -295,7 +435,8 @@ class MainWindow(QMainWindow):
         except (TypeError, ValueError):
             self.slider.setValue(80)
         station_id = self.settings.value("station", "")
-        if self.settings.value("bg_image", False) in (True, "true"):
+        # фон с котом по умолчанию включён (как в макете)
+        if self.settings.value("bg_image", True) in (True, "true"):
             self.bg_check.setChecked(True)
         for row in range(self.list.count()):
             item = self.list.item(row)
@@ -323,6 +464,14 @@ class MainWindow(QMainWindow):
                 and self.engine.state in (CONNECTING, PLAYING, PAUSED)):
             return
         self._play_item(item)
+
+    def _on_prev_next(self, step):
+        if not self.list.count():
+            return
+        row = self.list.currentRow()
+        if row < 0:
+            row = 0
+        self._play_item(self.list.item((row + step) % self.list.count()))
 
     def _on_playpause(self):
         state = self.engine.state

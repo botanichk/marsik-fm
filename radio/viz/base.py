@@ -33,6 +33,7 @@ class Visualizer(QWidget):
         self._bands = [0.0] * 8    # полосы спектра (низ → верх)
         self._wave = []            # срез формы волны -1..1 (для scope)
         self._bg = None            # фоновая картинка (или None)
+        self._win_bg = False       # оконный фон под всеми режимами
         self._phase = 0.0
         self._t = 0.0
         self._clock = QElapsedTimer()
@@ -65,13 +66,22 @@ class Visualizer(QWidget):
     def set_active(self, active):
         self._active = bool(active)
 
+    def set_window_bg(self, on):
+        """Оконный фон под всеми режимами: режим рисует только вуаль."""
+        self._win_bg = bool(on)
+        self.update()
+
     def set_background(self, pixmap):
         """Фоновое изображение (или None — сплошной цвет режима)."""
         self._bg = pixmap
         self.update()
 
     def _draw_bg(self, p, fill):
-        """Общий фон: картинка с тёмной вуалью, либо fill (цвет/градиент)."""
+        """Общий фон: картинка с тёмной вуалью, либо fill (цвет/градиент).
+
+        Если включён оконный фон (set_window_bg) — заливки нет, только
+        лёгкая вуаль, под ней видно общую картинку окна.
+        """
         if self._bg is not None and not self._bg.isNull():
             # cover: заполнить весь виджет с обрезкой по краям
             scaled = self._bg.scaled(
@@ -82,6 +92,10 @@ class Visualizer(QWidget):
                 (self.height() - scaled.height()) // 2, scaled)
             # вуаль: без неё свечение не читается на дневном небе
             p.fillRect(self.rect(), QColor(4, 6, 14, 175))
+        elif self._win_bg:
+            # окно само рисует картинку с вуалью — здесь ничего не заливаем,
+            # иначе зона визуализатора темнеет вдвое
+            pass
         else:
             p.fillRect(self.rect(), fill)
 
