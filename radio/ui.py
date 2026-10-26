@@ -5,7 +5,9 @@
 изображения, снизу — панель плеера (play/←/→/стоп/громкость/сохранить).
 
 Скачивание треков: yt-dlp ищет текущий трек по метаданным радио и
-сохраняет mp3 в downloads/ (запуск через QProcess — интерфейс не замирает).
+сохраняет mp3 в «Музыка» (XDG Music — туда же можно класть свои файлы,
+они появятся в меню пилюли «Скачанные» и играют как плеер). Запуск через
+QProcess — интерфейс не замирает.
 
 Вся логика (движок mpv, аудио-тап, 5 режимов визуализации) осталась
 прежней — маскот-кот убран из интерфейса (вернёмся к коту-бонго позже).
@@ -15,7 +17,8 @@ import re
 import shutil
 
 from PySide6.QtCore import (
-    QAbstractAnimation, QPropertyAnimation, QProcess, Qt, QSettings, QTimer,
+    QAbstractAnimation, QPropertyAnimation, QProcess, QSettings,
+    QStandardPaths, Qt, QTimer,
 )
 from PySide6.QtGui import QColor, QPainter, QPixmap
 from PySide6.QtWidgets import (
@@ -33,9 +36,9 @@ from .viz.galaxy import Galaxy
 from .viz.oscilloscope import Oscilloscope
 from .viz.aurora import Aurora
 
-# папка скачанных треков (mp3 не попадают в git)
-DL_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "downloads")
+# папка для треков: XDG «Музыка» (~/.config/user-dirs.dirs, локаль-независимо)
+DL_DIR = (QStandardPaths.writableLocation(QStandardPaths.MusicLocation)
+          or os.path.expanduser("~/Music"))
 _YTDLP = shutil.which("yt-dlp") or ""
 # yt-dlp: строка прогресса "[download]  45.2% of ..."
 _DL_PCT_RE = re.compile(r"\[download\]\s+(\d{1,3}(?:\.\d+)?)%")
@@ -431,7 +434,7 @@ class MainWindow(QMainWindow):
         self.btn_save.setObjectName("save")
         self.btn_save.setText("Сохранить")
         self.btn_save.setToolTip(
-            "Скачать текущий трек (yt-dlp) в downloads/")
+            "Скачать текущий трек (yt-dlp) в «Музыка»")
         self.btn_save.clicked.connect(self._on_save_clicked)
         ph.addWidget(self.btn_save, 0, Qt.AlignVCenter)
 
@@ -653,7 +656,7 @@ class MainWindow(QMainWindow):
         if not busy:
             self.btn_save.setText("Сохранить")
             self.btn_save.setToolTip(
-                "Скачать текущий трек (yt-dlp) в downloads/"
+                "Скачать текущий трек (yt-dlp) в «Музыка»"
                 if _YTDLP else
                 "yt-dlp не найден в системе — скачивание недоступно")
 
