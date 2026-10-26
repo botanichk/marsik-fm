@@ -1,0 +1,74 @@
+[
+  {
+    "id": "groovesalad",
+    "name": "Groove Salad",
+    "description": "A nicely chilled plate of ambient/downtempo beats and grooves.",
+    "url": "https://ice1.somafm.com/groovesalad-128-mp3"
+  },
+  {
+    "id": "dronezone",
+    "name": "Drone Zone",
+    "description": "Atmospheric ambient space music.",
+    "url": "https://ice1.somafm.com/dronezone-128-mp3"
+  },
+  {
+    "id": "deepspaceone",
+    "name": "Deep Space One",
+    "description": "Deep ambient electronic and space music.",
+    "url": "https://ice1.somafm.com/deepspaceone-128-mp3"
+  },
+  {
+    "id": "spacestation",
+    "name": "Space Station Soma",
+    "description": "Space age electronic and ambient music.",
+    "url": "https://ice1.somafm.com/spacestation-128-mp3"
+  },
+  {
+    "id": "lush",
+    "name": "Lush",
+    "description": "Sensual vocals and ambient grooves.",
+    "url": "https://ice1.somafm.com/lush-128-mp3"
+  },
+  {
+    "id": "thetrip",
+    "name": "The Trip",
+    "description": "Psychedelic/progressive space rock.",
+    "url": "https://ice1.somafm.com/thetrip-128-mp3"
+  },
+  {
+    "id": "secretagent",
+    "name": "Secret Agent",
+    "description": "The soundtrack for your shady dealings.",
+    "url": "https://ice1.somafm.com/secretagent-128-mp3"
+  },
+  {
+    "id": "defcon",
+    "name": "DEF CON Radio",
+    "description": "Music for hacking, coding and digital danger.",
+    "url": "https://ice1.somafm.com/defcon-128-mp3"
+  },
+  {
+    "id": "beatblender",
+    "name": "Beat Blender",
+    "description": "A late night blend of deep house and downtempo.",
+    "url": "https://ice1.somafm.com/beatblender-128-mp3"
+  },
+  {
+    "id": "indiepop",
+    "name": "Indie Pop Rocks!",
+    "description": "New and classic indie pop.",
+    "url": "https://ice1.somafm.com/indiepop-128-mp3"
+  },
+  {
+    "id": "bootliquor",
+    "name": "Boot Liquor",
+    "description": "Americana Roots music for the masses.",
+    "url": "https://ice1.somafm.com/bootliquor-128-mp3"
+  },
+  {
+    "id": "sonicuniverse",
+    "name": "Sonic Universe",
+    "description": "Avant-garde jazz from around the world.",
+    "url": "https://ice1.somafm.com/sonicuniverse-128-mp3"
+  }
+]
