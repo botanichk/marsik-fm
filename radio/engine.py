@@ -41,6 +41,7 @@ class AudioEngine(QObject):
         self._sock_path = None
         self._pending_volume = 80
         self._paused_prop = False
+        self._url = ""              # текущий url (для фильтра media-title)
         self.state = STOPPED
 
     # ---------- публичный API (вызывается из UI) ----------
@@ -56,6 +57,7 @@ class AudioEngine(QObject):
         if not self._start():
             return
         self._set_state(CONNECTING)
+        self._url = url
         self.trackChanged.emit("")
         self._cmds.put(("loadfile", url))
 
@@ -192,8 +194,10 @@ class AudioEngine(QObject):
                 time.sleep(0.05)
                 continue
             # подписки: метаданные трека и состояние паузы
+            # (icy-title есть не во всех сборках mpv — дублируем media-title)
             for cmd in (("observe_property", 1, "icy-title"),
-                        ("observe_property", 2, "pause")):
+                        ("observe_property", 2, "pause"),
+                        ("observe_property", 3, "media-title")):
                 try:
                     s.sendall((json.dumps({"command": list(cmd)}) + "\n").encode())
                 except OSError:
@@ -254,10 +258,21 @@ class AudioEngine(QObject):
                 self._set_state(PAUSED)
             elif not self._paused_prop and self.state == PAUSED:
                 self._set_state(PLAYING)
-        elif name == "icy-title":
+        elif name in ("icy-title", "media-title"):
             data = msg.get("data")
-            if data:
-                self.trackChanged.emit(str(data))
+            if not data:
+                return
+            text = str(data)
+            if name == "media-title" and self._is_stream_name(text):
+                return   # это имя потока/файла, а не трек
+            self.trackChanged.emit(text)
+
+    def _is_stream_name(self, text):
+        """media-title до прихода метаданных = имя потока (basename url)."""
+        if not self._url.startswith(("http://", "https://")):
+            return False   # локальный файл: media-title = имя трека, показываем
+        base = os.path.basename(self._url.split("?")[0])
+        return text in (base, os.path.splitext(base)[0])
 
     def _set_state(self, new_state):
         if self.state == new_state:

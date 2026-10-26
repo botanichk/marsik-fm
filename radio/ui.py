@@ -273,6 +273,7 @@ class MainWindow(QMainWindow):
         self._last_error = ""
         self._track = ""            # текущий трек (метаданные)
         self._dl_proc = None        # активный процесс yt-dlp
+        self._local = False         # играет локальный файл (не радио)
 
         self._build()
         self._load_list()
@@ -543,6 +544,7 @@ class MainWindow(QMainWindow):
 
     def _play_station(self, st):
         self._playing_id = st.get("id")
+        self._local = False
         # пилюля-остров показывает активную станцию
         self.pill.setText("♪  %s" % st.get("name", ""))
         self.engine.play(st["url"])
@@ -646,7 +648,7 @@ class MainWindow(QMainWindow):
         # качать можно, только когда играет поток и известен трек
         busy = self._dl_proc is not None
         can = bool(_YTDLP and self.engine.state == PLAYING
-                   and self._track and not busy)
+                   and self._track and not self._local and not busy)
         self.btn_save.setEnabled(can or busy)
         if not busy:
             self.btn_save.setText("Сохранить")
@@ -746,6 +748,7 @@ class MainWindow(QMainWindow):
     def _play_local(self, path):
         # локальный трек: показываем имя файла в пилюле станции
         self._playing_id = None
+        self._local = True
         self.pill.setText("♪  %s" % os.path.splitext(
             os.path.basename(path))[0])
         self.engine.play(path)

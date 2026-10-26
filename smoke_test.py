@@ -109,6 +109,26 @@ check("stop -> stopped", wait_state(engine, {STOPPED}, 10),
 engine.shutdown()
 check("mpv завершён (сирот нет)", not engine.is_running)
 
+# 6b. media-title фильтр: имя потока не эмитится, трек эмитится
+eng2 = AudioEngine()
+eng2._url = "https://ice1.somafm.com/groovesalad-128-mp3"
+got = []
+eng2.trackChanged.connect(got.append)
+eng2._on_property({"name": "media-title", "data": "groovesalad-128-mp3"})
+name_filtered = not got
+eng2._on_property({"name": "media-title", "data": "Artist - Song"})
+eng2._on_property({"name": "icy-title", "data": "Icy Song"})
+check("media-title: имя потока фильтруется, трек проходит",
+      name_filtered and got == ["Artist - Song", "Icy Song"],
+      "got=%s" % got)
+# локальный файл: media-title = имя трека, показываем
+eng2._url = "/home/user/downloads/Some Track.mp3"
+got.clear()
+eng2._on_property({"name": "media-title", "data": "Some Track"})
+check("media-title локального файла проходит", got == ["Some Track"],
+      "got=%s" % got)
+eng2.shutdown()
+
 # 7. настройки на месте
 settings = QSettings("radiofm", "radiofm")
 settings.setValue("smoke", "1")
