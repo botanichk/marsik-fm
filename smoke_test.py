@@ -184,6 +184,26 @@ try:
     combo.currentIndexChanged.connect(lambda i: stack.setCurrentIndex(i))
     combo.setCurrentIndex(1)
     check("переключение на Nebulous", stack.currentWidget() is neb)
+
+    # Galaxy: рендерится, вращается, реагирует на полосы и удар (сверхновая)
+    from radio.viz.galaxy import Galaxy
+    gal = Galaxy()
+    gal.resize(500, 300)
+    gal.set_active(True)
+    for i in range(40):
+        gal.set_audio_level(0.3 + 0.3 * math.sin(i * 0.4))
+        gal.set_bands([0.6, 0.4, 0.2, 0.1, 0.05, 0.3, 0.5, 0.7])
+        pump(0.02)
+    check("Galaxy рендерится", not gal.grab().isNull())
+    # резкий скачок энергии = удар → сверхновая вспыхивает
+    gal._env, gal._prev_env = 0.2, 0.2
+    gal._update(0.016, gal._t)
+    gal.set_audio_level(0.95)
+    for _ in range(6):
+        pump(0.02)
+    check("Galaxy: удар даёт сверхновую", gal._nova > 0.3,
+          "nova=%.2f" % gal._nova)
+
 except Exception as exc:
     import traceback
     traceback.print_exc()
