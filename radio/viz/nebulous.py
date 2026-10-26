@@ -53,7 +53,7 @@ class Nebulous(Visualizer):
         t, env = self._t, self._env
 
         # фон: глубокий тёмно-синий с затемнением к низу (как у волны)
-        p.fillRect(self.rect(), QColor(7, 9, 18))
+        self._draw_bg(p, QColor(7, 9, 18))
 
         cx, cy = w * 0.5, h * 0.5
         minwh = min(w, h)

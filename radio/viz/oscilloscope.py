@@ -48,7 +48,7 @@ class Oscilloscope(Visualizer):
         bg = QLinearGradient(0, 0, 0, h)
         bg.setColorAt(0.0, QColor(8, 11, 22))
         bg.setColorAt(1.0, QColor(4, 5, 11))
-        p.fillRect(self.rect(), bg)
+        self._draw_bg(p, bg)
 
         # сетка осциллографа (лёгкая, декоративная — как на приборе)
         p.setPen(QPen(QColor(40, 56, 96, 60), 1))

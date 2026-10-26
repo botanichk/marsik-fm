@@ -69,7 +69,7 @@ class Galaxy(Visualizer):
         w, h = float(self.width()), float(self.height())
         t, env = self._t, self._env
 
-        p.fillRect(self.rect(), QColor(5, 6, 14))
+        self._draw_bg(p, QColor(5, 6, 14))
 
         cx, cy = w * 0.5, h * 0.5
         R = min(w, h) * 0.46

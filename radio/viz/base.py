@@ -13,6 +13,7 @@ import math
 import time
 
 from PySide6.QtCore import QElapsedTimer, Qt, QTimer, Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QWidget
 
 _SIGNAL_TTL = 1.2            # сек: без данных дольше — считаем idle
@@ -31,6 +32,7 @@ class Visualizer(QWidget):
         self._baseline = 0.14      # медленная база уровня (AGC)
         self._bands = [0.0] * 8    # полосы спектра (низ → верх)
         self._wave = []            # срез формы волны -1..1 (для scope)
+        self._bg = None            # фоновая картинка (или None)
         self._phase = 0.0
         self._t = 0.0
         self._clock = QElapsedTimer()
@@ -62,6 +64,26 @@ class Visualizer(QWidget):
 
     def set_active(self, active):
         self._active = bool(active)
+
+    def set_background(self, pixmap):
+        """Фоновое изображение (или None — сплошной цвет режима)."""
+        self._bg = pixmap
+        self.update()
+
+    def _draw_bg(self, p, fill):
+        """Общий фон: картинка с тёмной вуалью, либо fill (цвет/градиент)."""
+        if self._bg is not None and not self._bg.isNull():
+            # cover: заполнить весь виджет с обрезкой по краям
+            scaled = self._bg.scaled(
+                self.size(), Qt.KeepAspectRatioByExpanding,
+                Qt.SmoothTransformation)
+            p.drawPixmap(
+                (self.width() - scaled.width()) // 2,
+                (self.height() - scaled.height()) // 2, scaled)
+            # вуаль: без неё свечение не читается на дневном небе
+            p.fillRect(self.rect(), QColor(4, 6, 14, 175))
+        else:
+            p.fillRect(self.rect(), fill)
 
     # ---------- анимация (общая) ----------
 

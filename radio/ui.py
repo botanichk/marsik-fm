@@ -1,7 +1,10 @@
 """Главное окно Marsik FM: список станций + плеер + светящаяся волна."""
+import os
+
 from PySide6.QtCore import Qt, QSettings
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
-    QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMainWindow,
+    QCheckBox, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMainWindow,
     QMessageBox, QSlider, QSplitter, QStyle, QToolButton, QVBoxLayout,
     QWidget, QComboBox, QStackedWidget,
 )
@@ -176,9 +179,17 @@ class MainWindow(QMainWindow):
         self.viz_combo.setToolTip("Режим визуализатора")
         self.viz_combo.currentIndexChanged.connect(
             lambda i: self.viz_stack.setCurrentIndex(i))
+        # фон-картинка (сонный кот на террасе) — по желанию
+        self.bg_check = QCheckBox("Фон с котом")
+        self.bg_check.setToolTip("Фоновое изображение под визуализатором")
+        self.bg_check.toggled.connect(self._on_bg_toggled)
+        viz_top = QHBoxLayout()
+        viz_top.addWidget(self.viz_combo)
+        viz_top.addWidget(self.bg_check)
+        viz_top.addStretch(1)
         viz_col = QVBoxLayout()
         viz_col.setSpacing(6)
-        viz_col.addWidget(self.viz_combo, 0, Qt.AlignLeft)
+        viz_col.addLayout(viz_top)
         viz_col.addWidget(self.viz_stack, 1)
         self.cat = MarsikCat()
         viz_row.addLayout(viz_col, 1)
@@ -241,6 +252,19 @@ class MainWindow(QMainWindow):
         cur = self.viz_stack.currentWidget()
         cur.envChanged.connect(self.cat.set_energy)
 
+    def _on_bg_toggled(self, on):
+        # фон-картинка под всеми режимами (сонный кот на террасе)
+        pm = None
+        if on:
+            path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                "backgrounds", "balcony.png")
+            if os.path.exists(path):
+                pm = QPixmap(path)
+        for v in self.viz_modes:
+            v.set_background(pm)
+        self.settings.setValue("bg_image", bool(on))
+
     # ---------- список станций ----------
 
     def _load_list(self):
@@ -271,6 +295,8 @@ class MainWindow(QMainWindow):
         except (TypeError, ValueError):
             self.slider.setValue(80)
         station_id = self.settings.value("station", "")
+        if self.settings.value("bg_image", False) in (True, "true"):
+            self.bg_check.setChecked(True)
         for row in range(self.list.count()):
             item = self.list.item(row)
             if item.data(Qt.UserRole).get("id") == station_id:

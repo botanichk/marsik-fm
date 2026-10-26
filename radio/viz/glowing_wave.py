@@ -44,7 +44,7 @@ class GlowingWave(Visualizer):
         bg = QLinearGradient(0, 0, 0, h)
         bg.setColorAt(0.0, QColor(11, 14, 26))
         bg.setColorAt(1.0, QColor(5, 6, 12))
-        p.fillRect(self.rect(), bg)
+        self._draw_bg(p, bg)
 
         # мягкое свечение фона за волной (ярче от музыки)
         halo = QRadialGradient(w * 0.5, h * 0.5, max(w, h) * 0.5)

@@ -232,6 +232,19 @@ try:
         pump(0.02)
     check("Aurora рендерится", not aua.grab().isNull())
 
+    # фон-картинка: set_background ставит pixmap, без него — сплошной цвет
+    from PySide6.QtGui import QPixmap
+    bg_path = os.path.join(HERE, "backgrounds", "balcony.png")
+    if os.path.exists(bg_path):
+        pm = QPixmap(bg_path)
+        aua.set_background(pm)
+        check("фон-картинка ставится и рендерится",
+              aua._bg is not None and not aua.grab().isNull())
+        aua.set_background(None)
+        check("фон снимается (обратно сплошной цвет)", aua._bg is None)
+    else:
+        print("skip фон: %s нет" % bg_path)
+
 except Exception as exc:
     import traceback
     traceback.print_exc()
