@@ -9,11 +9,11 @@
 """
 import os
 
-from PySide6.QtCore import Qt, QSettings
+from PySide6.QtCore import QPoint, Qt, QSettings
 from PySide6.QtGui import QColor, QPainter, QPixmap
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QListWidget,
-    QListWidgetItem, QMainWindow, QMessageBox, QSlider, QStackedWidget,
+    QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QMenu,
+    QMainWindow, QMessageBox, QSlider, QStackedWidget,
     QStyle, QToolButton, QVBoxLayout, QWidget,
 )
 
@@ -87,22 +87,32 @@ QFrame#playerBar {
     border: 1px solid rgba(120, 80, 50, 34);
     border-radius: 22px;
 }
-QListWidget {
-    background: transparent;
-    border: none;
-    outline: none;
+QToolButton#pill {
+    background: rgba(255, 250, 243, 235);
+    border: 1px solid rgba(224, 138, 60, 120);
+    border-radius: 17px;
+    padding: 8px 18px;
+    font-size: 14px;
+    font-weight: bold;
+    color: #4a2f50;
 }
-QListWidget::item {
-    padding: 8px 10px;
-    border-radius: 10px;
-    margin: 1px 2px;
+QToolButton#pill:hover {
+    background: rgba(240, 200, 160, 220);
+    border-color: rgba(224, 138, 60, 220);
 }
-QListWidget::item:hover {
-    background: rgba(196, 106, 44, 30);
+QMenu#stationMenu {
+    background: rgba(255, 250, 243, 246);
+    border: 1px solid rgba(120, 80, 50, 46);
+    border-radius: 12px;
+    padding: 6px;
 }
-QListWidget::item:selected {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 rgba(232, 140, 66, 235), stop:1 rgba(206, 100, 42, 235));
+QMenu#stationMenu::item {
+    padding: 9px 16px;
+    border-radius: 8px;
+    color: #40312a;
+}
+QMenu#stationMenu::item:selected {
+    background: rgba(232, 140, 66, 235);
     color: #ffffff;
 }
 QToolButton {
@@ -240,32 +250,28 @@ class MainWindow(QMainWindow):
         logo_col.addWidget(logo)
         logo_col.addWidget(tag)
         hbox.addLayout(logo_col)
+        hbox.addSpacing(24)
+
+        # «динамический остров»: пилюля активной станции, клик — список
+        self.menu = QMenu(self)
+        self.menu.setObjectName("stationMenu")
+        self.pill = QToolButton()
+        self.pill.setObjectName("pill")
+        self.pill.setText("Выберите станцию")
+        self.pill.setPopupMode(QToolButton.InstantPopup)
+        self.pill.setMenu(self.menu)
+        self.pill.setToolTip("Станции (клик — список)")
+        hbox.addWidget(self.pill, 0, Qt.AlignVCenter)
+
         hbox.addStretch(1)
         slogan = QLabel("Хорошая музыка делает день лучше ✦")
         slogan.setObjectName("slogan")
         hbox.addWidget(slogan, 0, Qt.AlignVCenter)
         root.addWidget(header)
 
-        # --- центр: сайдбар | визуализатор | карточка ---
+        # --- центр: визуализатор + маскот (место бывшей колонки свободно) ---
         content = QHBoxLayout()
         content.setSpacing(10)
-
-        # сайдбар станций
-        sidebar = QFrame()
-        sidebar.setObjectName("panel")
-        sidebar.setFixedWidth(250)
-        sb = QVBoxLayout(sidebar)
-        sb.setContentsMargins(10, 12, 10, 12)
-        sb.setSpacing(6)
-        section = QLabel("СТАНЦИИ")
-        section.setObjectName("section")
-        sb.addWidget(section)
-        self.list = QListWidget()
-        self.list.itemClicked.connect(self._on_station_clicked)
-        sb.addWidget(self.list, 1)
-        content.addWidget(sidebar, 0)
-
-        # центральная колонка: визуализатор + маскот
         center = QVBoxLayout()
         center.setSpacing(8)
         viz_top = QHBoxLayout()
@@ -412,7 +418,7 @@ class MainWindow(QMainWindow):
             v.set_window_bg(pm is not None)
         self.settings.setValue("bg_image", bool(on))
 
-    # ---------- список станций ----------
+    # ---------- список станций (в меню пилюли) ----------
 
     def _load_list(self):
         try:
@@ -425,16 +431,14 @@ class MainWindow(QMainWindow):
                 % (DEFAULT_PATH, exc))
             self.stations = []
         for st in self.stations:
-            # две строки, как в макете: имя + описание (rich text не работает
-            # в QListWidget этой сборки Qt — обычный текст в две строки)
-            item = QListWidgetItem(
-                "%s\n%s" % (st["name"], st["description"] or "Radio"))
-            item.setData(Qt.UserRole, st)
+            act = self.menu.addAction(
+                "%s — %s" % (st["name"], st["description"] or "Radio"))
             tooltip = st["description"] or st["url"]
             if st["description"]:
                 tooltip += "\n" + st["url"]
-            item.setToolTip(tooltip)
-            self.list.addItem(item)
+            act.setToolTip(tooltip)
+            act.triggered.connect(
+                lambda c=False, s=st: self._on_menu_station(s))
 
     def _restore(self):
         geom = self.settings.value("geometry")
@@ -448,40 +452,40 @@ class MainWindow(QMainWindow):
         # фон с котом по умолчанию включён (как в макете)
         if self.settings.value("bg_image", True) in (True, "true"):
             self.bg_check.setChecked(True)
-        for row in range(self.list.count()):
-            item = self.list.item(row)
-            if item.data(Qt.UserRole).get("id") == station_id:
-                self.list.setCurrentRow(row)
-                self._show_station(item)
+        for st in self.stations:
+            if st.get("id") == station_id:
+                self._show_station(st)
                 break
 
     # ---------- действия ----------
 
-    def _show_station(self, item):
-        st = item.data(Qt.UserRole)
+    def _show_station(self, st):
         self.lbl_station.setText(st.get("name", ""))
         self.lbl_desc.setText(st.get("description", ""))
 
-    def _play_item(self, item):
-        self.list.setCurrentItem(item)
-        self._show_station(item)
-        self._playing_id = item.data(Qt.UserRole).get("id")
-        self.engine.play(item.data(Qt.UserRole)["url"])
+    def _play_station(self, st):
+        self._show_station(st)
+        self._playing_id = st.get("id")
+        # пилюля-остров показывает активную станцию
+        self.pill.setText("♪  %s" % st.get("name", ""))
+        self.engine.play(st["url"])
 
-    def _on_station_clicked(self, item):
-        # клик по уже звучащей станции — ничего не делаем
-        if (item.data(Qt.UserRole).get("id") == self._playing_id
+    def _on_menu_station(self, st):
+        # выбор уже звучащей станции — ничего не делаем
+        if (st.get("id") == self._playing_id
                 and self.engine.state in (CONNECTING, PLAYING, PAUSED)):
             return
-        self._play_item(item)
+        self._play_station(st)
 
     def _on_prev_next(self, step):
-        if not self.list.count():
+        if not self.stations:
             return
-        row = self.list.currentRow()
-        if row < 0:
-            row = 0
-        self._play_item(self.list.item((row + step) % self.list.count()))
+        idx = 0
+        for i, st in enumerate(self.stations):
+            if st.get("id") == self._playing_id:
+                idx = i
+                break
+        self._play_station(self.stations[(idx + step) % len(self.stations)])
 
     def _on_playpause(self):
         state = self.engine.state
@@ -491,11 +495,17 @@ class MainWindow(QMainWindow):
         if state in (PLAYING, PAUSED):
             self.engine.toggle_pause()
             return
-        item = self.list.currentItem()
-        if item is None and self.list.count():
-            item = self.list.item(0)
-        if item is not None:
-            self._play_item(item)
+        # возобновляем последнюю станцию или первую из списка
+        st = None
+        if self._playing_id:
+            for cand in self.stations:
+                if cand.get("id") == self._playing_id:
+                    st = cand
+                    break
+        if st is None and self.stations:
+            st = self.stations[0]
+        if st is not None:
+            self._play_station(st)
 
     def _on_stop(self):
         self.engine.stop()
@@ -543,10 +553,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         self.settings.setValue("geometry", self.saveGeometry())
         self.settings.setValue("volume", self.slider.value())
-        item = self.list.currentItem()
-        if item is not None:
-            self.settings.setValue("station",
-                                   item.data(Qt.UserRole).get("id", ""))
+        self.settings.setValue("station", self._playing_id or "")
         self.tap.stop()
         self.engine.shutdown()
         super().closeEvent(event)

@@ -63,7 +63,8 @@ except Exception as exc:
 try:
     from radio.ui import MainWindow
     win = MainWindow()
-    check("окно собирается", win.list.count() == len(stations))
+    check("окно собирается",
+          len(win.menu.actions()) == len(stations) and win.pill is not None)
 except Exception as exc:
     check("окно собирается", False, str(exc))
     win = None
