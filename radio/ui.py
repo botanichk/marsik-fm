@@ -29,62 +29,62 @@ from .viz.aurora import Aurora
 
 # состояние -> (текст статуса, цвет)
 _STATUS = {
-    STOPPED: ("Остановлено", "#8b93a3"),
-    CONNECTING: ("Подключение…", "#f0b429"),
-    PLAYING: ("Играет", "#3ecf8e"),
-    PAUSED: ("Пауза", "#f0b429"),
-    ERROR: ("Ошибка", "#ff6b4a"),
+    STOPPED: ("Остановлено", "#8a7466"),
+    CONNECTING: ("Подключение…", "#c48a1a"),
+    PLAYING: ("Играет", "#2a9d6a"),
+    PAUSED: ("Пауза", "#c48a1a"),
+    ERROR: ("Ошибка", "#d24a2a"),
 }
 
 _STYLE = """
 QWidget {
-    color: #e6e9ef;
+    color: #40312a;
     font-size: 14px;
 }
 QLabel#logo {
     font-size: 24px;
     font-weight: 800;
-    color: #ffffff;
+    color: #4a2f50;
 }
 QLabel#tagline {
     font-size: 11px;
-    color: #f0b429;
+    color: #c46a2c;
     letter-spacing: 2px;
 }
 QLabel#slogan {
     font-size: 13px;
-    color: #c9a87c;
+    color: #8a6a4a;
     font-style: italic;
 }
 QLabel#section {
     font-size: 12px;
-    color: #9aa3b5;
+    color: #8a7466;
     letter-spacing: 2px;
 }
 QLabel#station {
     font-size: 20px;
     font-weight: bold;
-    color: #ffffff;
+    color: #3f2d36;
 }
 QLabel#desc {
-    color: #9aa3b5;
+    color: #8a7466;
     font-size: 13px;
 }
 QLabel#track {
-    color: #ff9a4d;
+    color: #c46a2c;
     font-size: 14px;
 }
 QLabel#status {
     font-size: 13px;
 }
 QFrame#panel {
-    background: rgba(16, 18, 26, 205);
-    border: 1px solid rgba(255, 255, 255, 26);
+    background: rgba(255, 250, 243, 222);
+    border: 1px solid rgba(120, 80, 50, 34);
     border-radius: 16px;
 }
 QFrame#playerBar {
-    background: rgba(16, 18, 26, 215);
-    border: 1px solid rgba(255, 255, 255, 26);
+    background: rgba(255, 250, 243, 232);
+    border: 1px solid rgba(120, 80, 50, 34);
     border-radius: 22px;
 }
 QListWidget {
@@ -98,65 +98,65 @@ QListWidget::item {
     margin: 1px 2px;
 }
 QListWidget::item:hover {
-    background: rgba(255, 255, 255, 22);
+    background: rgba(196, 106, 44, 30);
 }
 QListWidget::item:selected {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 rgba(255, 138, 61, 220), stop:1 rgba(214, 93, 42, 220));
+        stop:0 rgba(232, 140, 66, 235), stop:1 rgba(206, 100, 42, 235));
     color: #ffffff;
 }
 QToolButton {
-    background: rgba(35, 40, 51, 200);
-    border: 1px solid rgba(255, 255, 255, 34);
+    background: rgba(255, 252, 246, 220);
+    border: 1px solid rgba(120, 80, 50, 46);
     border-radius: 10px;
     padding: 9px;
 }
 QToolButton:hover {
-    background: rgba(52, 60, 78, 220);
+    background: rgba(240, 200, 160, 200);
 }
 QToolButton:pressed {
-    background: rgba(70, 80, 104, 230);
+    background: rgba(226, 170, 120, 220);
 }
 QToolButton:disabled {
-    color: #555c6b;
+    color: #b9ab9e;
 }
 QToolButton#play {
-    background: rgba(30, 26, 24, 220);
-    border: 2px solid #ff9a4d;
+    background: rgba(255, 250, 243, 235);
+    border: 2px solid #e08a3c;
     border-radius: 25px;
     padding: 12px;
 }
 QToolButton#play:hover {
-    background: rgba(255, 154, 77, 60);
+    background: rgba(240, 190, 140, 220);
 }
 QComboBox {
-    background: rgba(27, 30, 38, 220);
-    border: 1px solid rgba(255, 255, 255, 34);
+    background: rgba(255, 252, 246, 225);
+    border: 1px solid rgba(120, 80, 50, 46);
     border-radius: 8px;
     padding: 5px 10px;
 }
 QComboBox:hover {
-    border-color: rgba(255, 154, 77, 120);
+    border-color: rgba(224, 138, 60, 160);
 }
 QCheckBox {
-    color: #9aa3b5;
+    color: #8a7466;
 }
 QCheckBox:hover {
-    color: #e6e9ef;
+    color: #40312a;
 }
 QSlider::groove:horizontal {
     height: 4px;
-    background: rgba(255, 255, 255, 40);
+    background: rgba(120, 80, 50, 60);
     border-radius: 2px;
 }
 QSlider::handle:horizontal {
     width: 14px;
     margin: -5px 0;
     border-radius: 7px;
-    background: #ff9a4d;
+    background: #e08a3c;
 }
 QSlider::sub-page:horizontal {
-    background: #ff9a4d;
+    background: #e08a3c;
     border-radius: 2px;
 }
 """
@@ -184,9 +184,10 @@ class _Canvas(QWidget):
             p.drawPixmap(
                 (self.width() - scaled.width()) // 2,
                 (self.height() - scaled.height()) // 2, scaled)
-            p.fillRect(self.rect(), QColor(4, 6, 14, 150))
+            # лёгкая тёплая дымка вместо тёмной вуали
+            p.fillRect(self.rect(), QColor(255, 244, 226, 46))
         else:
-            p.fillRect(self.rect(), QColor(13, 15, 21))
+            p.fillRect(self.rect(), QColor(248, 240, 228))
 
 
 class MainWindow(QMainWindow):
@@ -217,13 +218,22 @@ class MainWindow(QMainWindow):
         root.setContentsMargins(14, 12, 14, 12)
         root.setSpacing(10)
 
-        # --- шапка: логотип + слоган ---
+        # --- шапка: логотип-котик + название + слоган ---
         header = QFrame()
         header.setObjectName("panel")
         hbox = QHBoxLayout(header)
         hbox.setContentsMargins(18, 8, 18, 8)
+        logo_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "backgrounds", "logo.png")
+        if os.path.exists(logo_path):
+            logo_pic = QLabel()
+            logo_pic.setPixmap(QPixmap(logo_path).scaled(
+                58, 58, Qt.KeepAspectRatioByExpanding,
+                Qt.SmoothTransformation))
+            hbox.addWidget(logo_pic)
         logo_col = QVBoxLayout()
-        logo = QLabel("✦ MARSIK FM")
+        logo = QLabel("MARSIK FM")
         logo.setObjectName("logo")
         tag = QLabel("GOOD MUSIC · GOOD VIBES · ALWAYS")
         tag.setObjectName("tagline")
@@ -296,7 +306,7 @@ class MainWindow(QMainWindow):
         cc.setSpacing(8)
         live = QLabel("●  СЕЙЧАС В ЭФИРЕ")
         live.setObjectName("section")
-        live.setStyleSheet("color: #ff6b4a;")
+        live.setStyleSheet("color: #d24a2a;")
         cc.addWidget(live)
         self.lbl_station = QLabel("Выберите станцию")
         self.lbl_station.setObjectName("station")
