@@ -80,20 +80,14 @@ _YTDLP = shutil.which("yt-dlp") or ""
 _DL_PCT_RE = re.compile(r"\[download\]\s+(\d{1,3}(?:\.\d+)?)%")
 _DL_ETA_RE = re.compile(r"ETA\s+(\d{1,2}:\d{2}(?::\d{2})?)")
 
-_STATUS_TEXT = {
-    STOPPED: "Остановлено", CONNECTING: "Подключение…", PLAYING: "Играет",
-    PAUSED: "Пауза", ERROR: "Ошибка",
-}
-
-
-def _status_for(state):
-    """(текст, цвет) статуса — цвет берётся из текущей темы."""
+# состояние -> цвет индикации (текст «Играет»/«Пауза» не выводится: это и так
+# видно по кнопке и по движущейся полосе)
+def _status_color(state):
     th = themes.current
-    color = {
+    return {
         STOPPED: th.muted, CONNECTING: th.warn, PLAYING: th.ok,
         PAUSED: th.warn, ERROR: th.err,
     }.get(state, th.muted)
-    return _STATUS_TEXT.get(state, "…"), hexs(color)
 
 
 # таблица стилей — шаблон: цвета подставляются из темы (theme.py)
@@ -109,7 +103,8 @@ QLabel#section { font-size: 12px; color: ${muted}; letter-spacing: 2px; }
 QLabel#station { font-size: 20px; font-weight: bold; color: ${text}; }
 QLabel#desc { color: ${muted}; font-size: 13px; }
 QLabel#track { color: ${accent}; font-size: 14px; }
-QLabel#status { font-size: 13px; }
+QLabel#timepos { font-size: 12px; color: ${muted}; }
+QLabel#queuepos { font-size: 12px; color: ${muted}; }
 QFrame#panel {
     background: ${panel_bg};
     border: 1px solid ${line};
@@ -507,13 +502,9 @@ class MainWindow(QMainWindow):
         self.slider.valueChanged.connect(self.engine.set_volume)
         ph.addWidget(self.slider)
 
-        # статус движка — под панелью плеера (маленькой строкой)
-        self.lbl_status = QLabel("")
-        self.lbl_status.setObjectName("status")
-        self.lbl_status.setAlignment(Qt.AlignRight)
-        self.lbl_status.setStyleSheet(
-            "padding: 2px 8px; border-radius: 8px;")
-        root.addWidget(self.lbl_status)
+        # статус движка больше не выводится текстом: «Играет»/«Пауза» и так
+        # видно по кнопке и по движущейся полосе. Ошибки и позиция в очереди
+        # живут в нижней полосе прогресса.
 
         # полоса прогресса трека: ползёт от 0 до конца, слева/справа время
         prog_frame = QFrame()
@@ -529,6 +520,11 @@ class MainWindow(QMainWindow):
         self.lbl_dur.setObjectName("timepos")
         self.lbl_dur.setMinimumWidth(46)
         self.lbl_dur.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        # позиция в очереди («3 / 6») — только когда играет локальная музыка
+        self.lbl_queue = QLabel("")
+        self.lbl_queue.setObjectName("queuepos")
+        self.lbl_queue.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.lbl_queue.hide()
         self.progress = QSlider(Qt.Horizontal)
         self.progress.setObjectName("progress")
         self.progress.setRange(0, 1000)     # промилле: плавно и без float
@@ -541,6 +537,7 @@ class MainWindow(QMainWindow):
         progress_row.addWidget(self.lbl_pos)
         progress_row.addWidget(self.progress, 1)
         progress_row.addWidget(self.lbl_dur)
+        progress_row.addWidget(self.lbl_queue)
         root.addWidget(prog_frame)
         self._seek_dragging = False
         self._dur = 0.0
@@ -902,15 +899,22 @@ class MainWindow(QMainWindow):
     # ---------- реакция на движок ----------
 
     def _on_state(self, state):
-        text, color = _status_for(state)
+        self._paint_status(_status_color(state))
         if state == ERROR:
-            text = "Ошибка: " + (self._last_error or "воспроизведение не удалось")
-        self.lbl_status.setText(text)
-        self._paint_status(color)
+            self.lbl_pos.setText("Ошибка")
+            self.lbl_pos.setToolTip(
+                self._last_error or "воспроизведение не удалось")
+        elif state == CONNECTING:
+            self.lbl_pos.setText("Подключение…")
+            self.lbl_pos.setToolTip("")
+        elif state in (STOPPED, PAUSED):
+            self.lbl_pos.setToolTip("")
+            self._reset_progress_ui()
+        # PLAYING: полосу заполняет _on_position, здесь её не трогаем
         if state == PLAYING and self._local:
             self._update_queue_label()
-        if state in (STOPPED, ERROR):
-            self._reset_progress_ui()
+        elif not self._local:
+            self.lbl_queue.hide()
 
         if state == PLAYING:
             icon = QStyle.SP_MediaPause
@@ -932,15 +936,13 @@ class MainWindow(QMainWindow):
         self._update_save_state()
 
     def _paint_status(self, color):
-        """Статус лежит поверх фоновой картинки — даём ему подложку темы."""
+        """Цвет индикации в нижней полосе (вместо отдельной строки статуса)."""
         th = themes.current
-        self.lbl_status.setStyleSheet(
-            "color: %s; font-size: 13px; padding: 2px 8px;"
-            " border-radius: 8px; background: %s;"
-            % (color, rgba(th.surface, 200)))
-        # высота с учётом padding: иначе Qt обрезает текст по вертикали
-        self.lbl_status.setMinimumHeight(
-            self.lbl_status.fontMetrics().height() + 8)
+        css = (
+            "font-size: 12px; color: %s; padding: 1px 6px;"
+            " border-radius: 7px; background: %s;"
+            % (hexs(color), rgba(th.surface, 190)))
+        self.lbl_pos.setStyleSheet(css)
 
     def _on_track(self, title):
         self._track = (title or "").strip()
@@ -964,8 +966,9 @@ class MainWindow(QMainWindow):
     def _on_error(self, message):
         self._last_error = message
         if self.engine.state == ERROR:
-            self.lbl_status.setText("Ошибка: " + message)
-            self._paint_status(_status_for(ERROR)[1])
+            self.lbl_pos.setText("Ошибка")
+            self.lbl_pos.setToolTip(message)
+            self._paint_status(_status_color(ERROR))
 
     # ---------- скачивание треков (yt-dlp) ----------
 
@@ -1258,11 +1261,17 @@ class MainWindow(QMainWindow):
         self._update_queue_label()
 
     def _update_queue_label(self):
+        """Позиция в очереди — в нижней полосе, рядом с длительностью."""
         if not self._local or not self._queue_total:
+            self.lbl_queue.hide()
             return
-        mode = "вперемешку" if self._shuffle else "по порядку"
-        self.lbl_status.setText("Играет · %d / %d · %s" % (
+        mode = "⇄" if self._shuffle else "→"
+        self.lbl_queue.setText("%d / %d  %s" % (
             self._queue_pos, self._queue_total, mode))
+        self.lbl_queue.setToolTip(
+            "Трек %d из %d, %s" % (self._queue_pos, self._queue_total,
+                                   "вперемешку" if self._shuffle else "по порядку"))
+        self.lbl_queue.show()
 
     # ---------- закрытие ----------
 
