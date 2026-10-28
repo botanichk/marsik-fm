@@ -285,6 +285,12 @@ class MainWindow(QMainWindow):
         self._track = ""            # текущий трек (метаданные)
         self._dl_proc = None        # активный процесс yt-dlp
         self._dl_buf = ""           # недописанная строка вывода yt-dlp
+        self._dl_had_pct = False    # пришли ли хоть какие-то проценты
+        self._dl_already = False    # файл уже был в «Музыке»
+        self._dl_tick = 0           # запасной ход полосы без процентов
+        self._dl_timer = QTimer(self)
+        self._dl_timer.setInterval(400)
+        self._dl_timer.timeout.connect(self._dl_tick_progress)
         self._local = False         # играет локальный файл (не радио)
         self._queue = []            # очередь локальных файлов (плейлист)
         self._queue_pos = 0         # позиция в очереди (1-based, для статуса)
@@ -999,8 +1005,25 @@ class MainWindow(QMainWindow):
         self._dl_buf = ""
         self._dl_proc.start(args[0], args[1:])
         self._dl_begin()
+        # если yt-dlp не пришлёт ни одного процента (например, качает
+        # m3u8-сегменты без общего размера), полоса всё равно должна жить:
+        # тянем её сами, пока не придёт настоящий процент
+        self._dl_tick = 0
+        self._dl_timer.start(400)
         self.btn_save.setText("Отмена")
         self.btn_save.setEnabled(True)
+
+    def _dl_tick_progress(self):
+        """Запасной ход полосы, пока нет реальных процентов от yt-dlp.
+
+        Доползает до 90% и замирает: врать про 100% нельзя, а «ничего не
+        происходит» выглядит как зависшее приложение.
+        """
+        if not self._downloading or self._dl_had_pct or self._dl_already:
+            return
+        self._dl_tick = min(90, self._dl_tick + 1)
+        self.progress.setValue(self._dl_tick * 10)
+        self.lbl_dur.setText("%d%%" % self._dl_tick)
 
     def _on_dl_output(self):
         """Читаем вывод yt-dlp и обновляем полосу процентами.
@@ -1013,6 +1036,13 @@ class MainWindow(QMainWindow):
         text = self._dl_buf + data
         *lines, self._dl_buf = text.split("\n")
         for line in lines:
+            # файл уже лежал в «Музыке»: yt-dlp его не качает, процентов нет
+            if "has already been downloaded" in line:
+                self._dl_already = True
+                self.lbl_pos.setText("Уже в «Музыке»")
+                self.lbl_dur.setText("100%")
+                self.progress.setValue(1000)
+                continue
             m = _DL_PCT_RE.search(line)
             if not m:
                 continue
@@ -1026,8 +1056,11 @@ class MainWindow(QMainWindow):
         self._dl_proc = None
         self._dl_buf = ""
         proc.deleteLater()
+        self._dl_timer.stop()
         self._dl_end()
-        if code == 0:
+        if code == 0 and self._dl_already:
+            self._flash_pill("✓ Уже в «Музыке»", "#2a9d6a")
+        elif code == 0:
             self._flash_pill("✓ Сохранено!", "#2a9d6a")
         else:
             self._flash_pill("Ошибка скачивания", "#d24a2a")
@@ -1187,6 +1220,8 @@ class MainWindow(QMainWindow):
         """Скачивание стартовало: полоса переключается в режим процентов."""
         self._downloading = True
         self._dl_pct = 0
+        self._dl_had_pct = False    # были ли реальные проценты
+        self._dl_already = False    # файл уже лежал в «Музыке»
         self._seek_dragging = False
         self.progress.setEnabled(False)     # перематывать во время загрузки нечего
         self.progress.setToolTip("Скачивание трека…")
@@ -1197,6 +1232,7 @@ class MainWindow(QMainWindow):
     def _dl_set_pct(self, pct):
         pct = max(0, min(100, int(round(pct))))
         self._dl_pct = pct
+        self._dl_had_pct = True
         self.progress.setValue(pct * 10)    # шкала полосы — промилле
         self.lbl_dur.setText("%d%%" % pct)
         if pct >= 100:

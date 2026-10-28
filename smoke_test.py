@@ -335,6 +335,42 @@ try:
         check("скачивание: после конца полоса снова показывает трек",
               win.lbl_dur.text() == "2:00" and win.progress.value() == 250,
               "dur=%s value=%d" % (win.lbl_dur.text(), win.progress.value()))
+
+        # файл уже лежал в «Музыке»: yt-dlp не качает, процентов нет
+        win._dl_begin()
+        win._dl_proc = None            # эмулируем живой процесс без данных
+        win._dl_timer.stop()
+        win._dl_buf = ""
+        win._dl_already = True
+        win.lbl_pos.setText("Уже в «Музыке»")
+        win.lbl_dur.setText("100%")
+        win.progress.setValue(1000)
+        check("скачивание: файл уже в «Музыке» — полоса на 100%",
+              win.progress.value() == 1000 and "Уже" in win.lbl_pos.text(),
+              win.lbl_pos.text())
+        win._dl_end()
+
+        # запасной ход: реальных процентов нет — полоса всё равно ползёт
+        win._dl_begin()
+        win._dl_proc = None
+        win._dl_timer.stop()
+        start = win.progress.value()
+        for _ in range(5):
+            win._dl_tick_progress()
+        check("скачивание: без процентов полоса ползёт сама",
+              win.progress.value() > start and win.progress.value() <= 900,
+              "start=%d now=%d" % (start, win.progress.value()))
+        # но не врёт про 100%
+        for _ in range(200):
+            win._dl_tick_progress()
+        check("скачивание: запасной ход не доходит до 100%",
+              win.progress.value() == 900, win.progress.value())
+        # пришли настоящие проценты — запасной ход уступает
+        win._dl_set_pct(42)
+        win._dl_tick_progress()
+        check("скачивание: реальные проценты главнее запасного хода",
+              win.progress.value() == 420, win.progress.value())
+        win._dl_end()
 except Exception as exc:
     import traceback
     traceback.print_exc()
