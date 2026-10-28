@@ -1,13 +1,19 @@
-"""AudioEngine: воспроизведение потоков внешним mpv (JSON IPC).
+"""AudioEngine: воспроизведение потоков и плейлистов внешним mpv (JSON IPC).
 
 UI общается только с этим классом — движок можно заменить (например, на
 GStreamer с appsink для будущих визуализаторов) без переделки интерфейса.
+
+Два режима воспроизведения:
+  play(url)         — одиночный поток (радио) или файл;
+  play_playlist()   — очередь файлов из папки: mpv сам переходит к следующему,
+                      порядок задаётся shuffle (вперемешку / по порядку).
 
 Состояния: stopped / connecting / playing / paused / error.
 """
 import json
 import os
 import queue
+import random
 import select
 import socket
 import subprocess
@@ -30,6 +36,9 @@ class AudioEngine(QObject):
     stateChanged = Signal(str)
     trackChanged = Signal(str)
     errorRaised = Signal(str)
+    playlistChanged = Signal(int, int)   # (позиция в очереди, всего треков)
+    positionChanged = Signal(float, float)  # (позиция в треке, длительность)
+    seekableChanged = Signal(bool)       # можно ли перематывать (файл, не поток)
 
     def __init__(self, extra_args=(), parent=None):
         super().__init__(parent)
@@ -42,6 +51,11 @@ class AudioEngine(QObject):
         self._pending_volume = 80
         self._paused_prop = False
         self._url = ""              # текущий url (для фильтра media-title)
+        self._shuffle = False       # порядок очереди: вперемешку или по порядку
+        self._queue_len = 0         # сколько треков в текущей очереди (0 = нет)
+        self._seekable = False      # локальный файл: можно перематывать
+        self._position = 0.0        # текущая позиция в треке, сек
+        self._duration = 0.0        # длительность трека, сек (0 = поток)
         self.state = STOPPED
 
     # ---------- публичный API (вызывается из UI) ----------
@@ -53,17 +67,82 @@ class AudioEngine(QObject):
             and self._thread and self._thread.is_alive()
         )
 
+    def _reset_progress(self):
+        """Новый трек/поток: позиция с нуля, длительность неизвестна."""
+        self._position = 0.0
+        self._duration = 0.0
+        self.positionChanged.emit(0.0, 0.0)
+
     def play(self, url):
         if not self._start():
             return
         self._set_state(CONNECTING)
         self._url = url
+        self._queue_len = 0
+        self._reset_progress()
         self.trackChanged.emit("")
         self._cmds.put(("loadfile", url))
+
+    def play_playlist(self, paths, shuffle=False):
+        """Играет очередь файлов; mpv сам переходит к следующему треку.
+
+        paths — список абсолютных путей. shuffle=True перемешивает очередь
+        здесь, в Python: mpv не тасует список, собранный через loadfile
+        append, а так порядок ровно тот, что мы показали пользователю.
+        """
+        paths = [p for p in paths if p]
+        if not paths:
+            return False
+        if not self._start():
+            return False
+        if shuffle and len(paths) > 1:
+            first, rest = paths[0], paths[1:]
+            random.shuffle(rest)
+            paths = [first] + rest
+        self._set_state(CONNECTING)
+        self._url = paths[0]
+        self._queue_len = len(paths)
+        self._shuffle = bool(shuffle)
+        self._reset_progress()
+        self.trackChanged.emit("")
+        self._cmds.put(("set_property", "shuffle", "no"))
+        self._cmds.put(("loadfile", paths[0], "replace"))
+        for path in paths[1:]:
+            self._cmds.put(("loadfile", path, "append"))
+        return True
+
+    def playlist_next(self):
+        """Следующий трек очереди (в конец — по кругу)."""
+        if self.is_running and self._queue_len:
+            self._cmds.put(("playlist-next", "weak"))
+
+    def playlist_prev(self):
+        """Предыдущий трек очереди."""
+        if self.is_running and self._queue_len:
+            self._cmds.put(("playlist-prev", "weak"))
+
+    def set_shuffle(self, on):
+        """Запомнить порядок для следующей очереди (текущая не тасуется)."""
+        self._shuffle = bool(on)
+
+    def seek(self, seconds):
+        """Перемотка внутри трека (только файлы; у потока длительности нет)."""
+        if self.is_running and self._seekable:
+            self._cmds.put(("seek", max(0.0, float(seconds)), "absolute"))
+
+    @property
+    def seekable(self):
+        return self._seekable
+
+    @property
+    def has_queue(self):
+        return self._queue_len > 0
 
     def stop(self):
         self._set_state(STOPPED)
         self.trackChanged.emit("")
+        self._queue_len = 0
+        self._reset_progress()
         if self.is_running:
             self._cmds.put(("stop",))
 
@@ -112,8 +191,9 @@ class AudioEngine(QObject):
             self._proc.kill()
             self._proc.wait(timeout=1.0)
 
-        self._sock_path = "%s/radiofm-%s.sock" % (
-            os.environ.get("XDG_RUNTIME_DIR") or "/tmp", os.getpid())
+        self._sock_path = "%s/radiofm-%s-%s.sock" % (
+            os.environ.get("XDG_RUNTIME_DIR") or "/tmp", os.getpid(),
+            id(self) & 0xffff)
         try:
             os.unlink(self._sock_path)
         except OSError:
@@ -197,7 +277,12 @@ class AudioEngine(QObject):
             # (icy-title есть не во всех сборках mpv — дублируем media-title)
             for cmd in (("observe_property", 1, "icy-title"),
                         ("observe_property", 2, "pause"),
-                        ("observe_property", 3, "media-title")):
+                        ("observe_property", 3, "media-title"),
+                        ("observe_property", 4, "playlist-pos"),
+                        ("observe_property", 5, "playlist-count"),
+                        ("observe_property", 6, "time-pos"),
+                        ("observe_property", 7, "duration"),
+                        ("observe_property", 8, "seekable")):
                 try:
                     s.sendall((json.dumps({"command": list(cmd)}) + "\n").encode())
                 except OSError:
@@ -227,10 +312,19 @@ class AudioEngine(QObject):
         ev = msg.get("event")
         if ev == "file-loaded":
             self._set_state(PAUSED if self._paused_prop else PLAYING)
+        elif ev == "start-file":
+            # переход к следующему треку очереди: полоса начинается с нуля
+            self._reset_progress()
         elif ev == "end-file":
             self._on_end_file(msg)
         elif ev == "property-change":
             self._on_property(msg)
+        elif ev == "idle":
+            # очередь доиграла до конца — mpv ушёл в простой
+            if self._queue_len and self.state in (PLAYING, PAUSED):
+                self._queue_len = 0
+                self._set_state(STOPPED)
+                self.trackChanged.emit("")
         elif msg.get("error") not in (None, "success"):
             if self.state == CONNECTING:
                 self._set_state(ERROR)
@@ -241,7 +335,10 @@ class AudioEngine(QObject):
         if reason in _END_IGNORE or self.state == STOPPED:
             return
         detail = msg.get("file_error") or ""
+        # eof в очереди — это штатный переход к следующему треку, не ошибка
         if reason == "eof":
+            if self._queue_len:
+                return
             text = "Соединение с потоком прервано"
         else:
             text = "Не удалось воспроизвести поток — проверьте сеть или URL станции"
@@ -258,6 +355,31 @@ class AudioEngine(QObject):
                 self._set_state(PAUSED)
             elif not self._paused_prop and self.state == PAUSED:
                 self._set_state(PLAYING)
+        elif name in ("time-pos", "duration"):
+            data = msg.get("data")
+            # у живого потока duration/time-pos может быть None
+            if not isinstance(data, (int, float)):
+                return
+            if name == "duration":
+                self._duration = float(data)
+            else:
+                self._position = float(data)
+            self.positionChanged.emit(self._position, self._duration)
+        elif name == "seekable":
+            new = bool(msg.get("data"))
+            if new != self._seekable:
+                self._seekable = new
+                self.seekableChanged.emit(new)
+        elif name in ("playlist-pos", "playlist-count"):
+            data = msg.get("data")
+            if not isinstance(data, int):
+                return
+            if name == "playlist-count":
+                self._queue_len = max(0, data)
+                return
+            # playlist-pos: 0-based; -1 = очередь кончилась
+            if data >= 0 and self._queue_len > 0:
+                self.playlistChanged.emit(data, self._queue_len)
         elif name in ("icy-title", "media-title"):
             data = msg.get("data")
             if not data:

@@ -14,6 +14,7 @@ import math
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPainter, QRadialGradient
 
+from ..theme import manager as _themes
 from .base import Visualizer
 
 _STARS = 220          # количество звёзд
@@ -22,18 +23,8 @@ _PHI = 1.375          # угол «золотого сечения» между 
 
 
 def _ramp(h):
-    """Палитра 0..1 → RGB (cyan → blue → violet → magenta)."""
-    stops = ((0.00, (61, 216, 255)), (0.30, (75, 130, 255)),
-             (0.65, (150, 95, 255)), (1.00, (226, 86, 255)))
-    for i in range(len(stops) - 1):
-        p0, c0 = stops[i]
-        p1, c1 = stops[i + 1]
-        if h <= p1:
-            t = (h - p0) / (p1 - p0) if p1 > p0 else 0.0
-            c = tuple(int(c0[k] + (c1[k] - c0[k]) * max(0.0, min(1.0, t)))
-                      for k in range(3))
-            return c
-    return stops[-1][1]
+    """Палитра темы 0..1 → RGB."""
+    return _themes.current.ramp(h)
 
 
 class Galaxy(Visualizer):
@@ -69,7 +60,10 @@ class Galaxy(Visualizer):
         w, h = float(self.width()), float(self.height())
         t, env = self._t, self._env
 
-        self._draw_bg(p, QColor(5, 6, 14))
+        th = _themes.current
+        self._draw_bg(p, th.q(th.viz_bg_dark))
+        c0, c1 = th.stops[0][1], th.stops[1][1]
+        c3 = th.stops[3][1]
 
         cx, cy = w * 0.5, h * 0.5
         R = min(w, h) * 0.46
@@ -79,9 +73,12 @@ class Galaxy(Visualizer):
 
         # ядро галактики (компактное, иначе съедает рукава)
         core = QRadialGradient(cx, cy, R * 0.26)
-        core.setColorAt(0.0, QColor(150, 215, 255, int(24 + 70 * env)))
-        core.setColorAt(0.5, QColor(90, 130, 235, int(10 + 40 * env)))
-        core.setColorAt(1.0, QColor(40, 60, 160, 0))
+        lc = tuple(int(v) for v in (c0[0] + (255 - c0[0]) * 0.4,
+                                   c0[1] + (255 - c0[1]) * 0.4,
+                                   c0[2] + (255 - c0[2]) * 0.4))
+        core.setColorAt(0.0, QColor(*lc, int(24 + 70 * env)))
+        core.setColorAt(0.5, QColor(*c1, int(10 + 40 * env)))
+        core.setColorAt(1.0, QColor(*c1, 0))
         p.setPen(Qt.NoPen)
         p.setBrush(core)
         p.drawEllipse(cx, cy, R * 0.26, R * 0.26)
@@ -115,8 +112,9 @@ class Galaxy(Visualizer):
         if self._nova > 0.01:
             flash = QRadialGradient(cx, cy, R * 0.7 * self._nova)
             a = int(200 * self._nova)
-            flash.setColorAt(0.0, QColor(230, 240, 255, a))
-            flash.setColorAt(0.3, QColor(160, 190, 255, int(a * 0.6)))
-            flash.setColorAt(1.0, QColor(120, 90, 255, 0))
+            wc = tuple(int(v + (255 - v) * 0.75) for v in c0)
+            flash.setColorAt(0.0, QColor(*wc, a))
+            flash.setColorAt(0.3, QColor(*c1, int(a * 0.6)))
+            flash.setColorAt(1.0, QColor(*c3, 0))
             p.setBrush(flash)
             p.drawEllipse(cx, cy, R * 0.7 * self._nova, R * 0.7 * self._nova)

@@ -16,14 +16,9 @@ import time
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QPen
 
+from ..theme import manager as _themes
 from .base import Visualizer
 
-_STOPS = (
-    (0.00, (61, 216, 255)),   # cyan
-    (0.30, (75, 130, 255)),   # blue
-    (0.65, (150, 95, 255)),   # violet
-    (1.00, (226, 86, 255)),   # magenta
-)
 _GHOSTS = 3           # призрачных копии (послесвечение фосфора)
 _SIGNAL_TTL = 0.5     # сек: свежий срез формы волны
 
@@ -44,14 +39,17 @@ class Oscilloscope(Visualizer):
         p.setRenderHint(QPainter.Antialiasing)
         w, h = float(self.width()), float(self.height())
         t, env = self._t, self._env
+        th = _themes.current
 
         bg = QLinearGradient(0, 0, 0, h)
-        bg.setColorAt(0.0, QColor(8, 11, 22))
-        bg.setColorAt(1.0, QColor(4, 5, 11))
+        bg.setColorAt(0.0, th.q(th.viz_bg))
+        bg.setColorAt(1.0, th.q(th.viz_bg_dark))
         self._draw_bg(p, bg)
 
         # сетка осциллографа (лёгкая, декоративная — как на приборе)
-        p.setPen(QPen(QColor(40, 56, 96, 60), 1))
+        gc = (th.stops[1][1][0] // 3, th.stops[1][1][1] // 3,
+              th.stops[1][1][2] // 3)
+        p.setPen(QPen(th.q(gc, 70), 1))
         step = max(24, int(w // 16))
         for x in range(step, int(w), step):
             p.drawLine(int(x), 0, int(x), int(h))
@@ -63,7 +61,7 @@ class Oscilloscope(Visualizer):
         amp = h * 0.36
 
         grad = QLinearGradient(0, 0, w, 0)
-        for pos, col in _STOPS:
+        for pos, col in th.stops:
             grad.setColorAt(pos, QColor(*col))
 
         if live and self._wave:

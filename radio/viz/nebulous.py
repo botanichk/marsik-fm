@@ -15,6 +15,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPainter, QRadialGradient
 from PySide6.QtWidgets import QWidget
 
+from ..theme import manager as _themes
 from .base import Visualizer
 
 # (оттенок 0..1 по спектру, радиус-множитель, фаза дрейфа, вес полосы)
@@ -33,16 +34,8 @@ def _lerp(a, b, t):
 
 
 def _ramp(h):
-    """Палитра 0..1 → RGB (cyan → blue → violet → magenta)."""
-    stops = ((0.00, (61, 216, 255)), (0.30, (75, 130, 255)),
-             (0.65, (150, 95, 255)), (1.00, (226, 86, 255)))
-    for i in range(len(stops) - 1):
-        p0, c0 = stops[i]
-        p1, c1 = stops[i + 1]
-        if h <= p1:
-            t = (h - p0) / (p1 - p0) if p1 > p0 else 0.0
-            return _lerp(c0, c1, max(0.0, min(1.0, t)))
-    return stops[-1][1]
+    """Палитра темы 0..1 → RGB."""
+    return _themes.current.ramp(h)
 
 
 class Nebulous(Visualizer):
@@ -53,7 +46,8 @@ class Nebulous(Visualizer):
         t, env = self._t, self._env
 
         # фон: глубокий тёмно-синий с затемнением к низу (как у волны)
-        self._draw_bg(p, QColor(7, 9, 18))
+        th = _themes.current
+        self._draw_bg(p, th.q(th.viz_bg))
 
         cx, cy = w * 0.5, h * 0.5
         minwh = min(w, h)
@@ -84,6 +78,7 @@ class Nebulous(Visualizer):
 
         # мягкое центральное свечение, ярче от общей энергии
         halo = QRadialGradient(cx, cy, minwh * 0.6)
-        halo.setColorAt(0, QColor(70, 110, 210, int(10 + 44 * env)))
-        halo.setColorAt(1, QColor(70, 110, 210, 0))
+        hc = th.stops[1][1]
+        halo.setColorAt(0, QColor(*hc, int(10 + 44 * env)))
+        halo.setColorAt(1, QColor(*hc, 0))
         p.fillRect(self.rect(), halo)

@@ -1,0 +1,11 @@
+{
+  "name": "Закат",
+  "primary": "#e8743b",
+  "secondary": "#5a2d4a",
+  "tertiary": "#c8502c",
+  "surface": "#fff4ea",
+  "on_surface": "#3d2a26",
+  "canvas": "#f6e3d3",
+  "ramp": ["#ffb347", "#ff7e5f", "#c94b8a", "#6a4c93"],
+  "viz_bg": "#1a1020"
+}

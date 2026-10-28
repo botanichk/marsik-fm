@@ -6,22 +6,10 @@
     "url": "https://ice1.somafm.com/groovesalad-128-mp3"
   },
   {
-    "id": "dronezone",
-    "name": "Drone Zone",
-    "description": "Atmospheric ambient space music.",
-    "url": "https://ice1.somafm.com/dronezone-128-mp3"
-  },
-  {
     "id": "deepspaceone",
     "name": "Deep Space One",
     "description": "Deep ambient electronic and space music.",
     "url": "https://ice1.somafm.com/deepspaceone-128-mp3"
-  },
-  {
-    "id": "spacestation",
-    "name": "Space Station Soma",
-    "description": "Space age electronic and ambient music.",
-    "url": "https://ice1.somafm.com/spacestation-128-mp3"
   },
   {
     "id": "lush",
@@ -40,12 +28,6 @@
     "name": "Secret Agent",
     "description": "The soundtrack for your shady dealings.",
     "url": "https://ice1.somafm.com/secretagent-128-mp3"
-  },
-  {
-    "id": "defcon",
-    "name": "DEF CON Radio",
-    "description": "Music for hacking, coding and digital danger.",
-    "url": "https://ice1.somafm.com/defcon-128-mp3"
   },
   {
     "id": "beatblender",
@@ -78,27 +60,15 @@
     "url": "https://listen.181fm.com/181-frontporch_128k.mp3"
   },
   {
-    "id": "deltablues",
-    "name": "Delta Blues",
-    "description": "Дельта-блюз: корни, кабаки и гитары Миссисипи.",
+    "id": "bluegrass_country_(wamu)",
+    "name": "Bluegrass Country (WAMU)",
+    "description": "",
+    "url": "http://ice24.securenetsystems.net/WAMU"
+  },
+  {
+    "id": "radio_caprice_—_delta_blues",
+    "name": "Radio Caprice — Delta Blues",
+    "description": "",
     "url": "http://79.120.77.11:8002/deltablues"
-  },
-  {
-    "id": "country",
-    "name": "Country",
-    "description": "Кантри: традиционное и ново-классическое.",
-    "url": "http://79.120.77.11:8002/country"
-  },
-  {
-    "id": "blues",
-    "name": "Blues",
-    "description": "Блюз: чикагский, электрический и классический.",
-    "url": "http://79.120.77.11:8002/blues"
-  },
-  {
-    "id": "oldies",
-    "name": "Oldies",
-    "description": "Золотая классика — oldies.",
-    "url": "http://79.120.77.11:8002/oldies"
   }
 ]

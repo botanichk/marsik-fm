@@ -14,6 +14,7 @@ import math
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
 
+from ..theme import manager as _themes
 from .base import Visualizer
 
 _RIBBONS = 5            # количество лент
@@ -30,16 +31,7 @@ _GLOW = ((26.0, 0.05), (9.0, 0.16), (3.0, 0.55))
 
 
 def _ramp(h):
-    stops = ((0.00, (61, 216, 255)), (0.30, (75, 130, 255)),
-             (0.65, (150, 95, 255)), (1.00, (226, 86, 255)))
-    for i in range(len(stops) - 1):
-        p0, c0 = stops[i]
-        p1, c1 = stops[i + 1]
-        if h <= p1:
-            t = (h - p0) / (p1 - p0) if p1 > p0 else 0.0
-            return tuple(int(c0[k] + (c1[k] - c0[k]) * max(0.0, min(1.0, t)))
-                         for k in range(3))
-    return stops[-1][1]
+    return _themes.current.ramp(h)
 
 
 class Aurora(Visualizer):
@@ -49,7 +41,8 @@ class Aurora(Visualizer):
         w, h = float(self.width()), float(self.height())
         t, env = self._t, self._env
 
-        self._draw_bg(p, QColor(4, 6, 14))
+        th = _themes.current
+        self._draw_bg(p, th.q(th.viz_bg_dark))
 
         step = max(8, w // 60)
         for idx in range(_RIBBONS):
