@@ -288,6 +288,58 @@ except Exception as exc:
     traceback.print_exc()
     check("прогресс трека", False, str(exc))
 
+# 6f. скачивание: полоса статуса показывает проценты и ETA
+try:
+    from radio.ui import _DL_PCT_RE, _DL_ETA_RE
+
+    line = ("[download]  45.2% of    4.13MiB at    1.23MiB/s "
+            "ETA 00:03 (frag 3/9)")
+    m = _DL_PCT_RE.search(line)
+    check("скачивание: проценты из вывода yt-dlp",
+          m is not None and abs(float(m.group(1)) - 45.2) < 0.01,
+          "m=%s" % (m.group(1) if m else None))
+    e = _DL_ETA_RE.search(line)
+    check("скачивание: ETA из вывода yt-dlp",
+          e is not None and e.group(1) == "00:03",
+          "eta=%s" % (e.group(1) if e else None))
+    # строки без процентов не должны ломать парсер
+    check("скачивание: служебные строки не дают процентов",
+          _DL_PCT_RE.search("[download] Destination: /x/y.mp3") is None
+          and _DL_PCT_RE.search("[download] Download completed") is None)
+
+    if win is not None:
+        # полоса переключается в режим скачивания и обратно
+        win._local = True
+        win._on_position(30.0, 120.0)      # играет файл
+        win._dl_begin()
+        check("скачивание: полоса занята загрузкой",
+              win._downloading and win.lbl_pos.text() == "Скачивание"
+              and win.lbl_dur.text() == "0%")
+        win._dl_set_pct(45.2)
+        check("скачивание: проценты видны в полосе",
+              win.lbl_dur.text() == "45%" and win.progress.value() == 450,
+              "dur=%s value=%d" % (win.lbl_dur.text(), win.progress.value()))
+        # позиция трека не должна перебивать индикатор загрузки
+        win._on_position(60.0, 120.0)
+        check("скачивание: позиция трека не ломает индикатор",
+              win.lbl_dur.text() == "45%" and win.progress.value() == 450)
+        win._dl_set_pct(100)
+        check("скачивание: после 100% — «Обработка»",
+              win.lbl_pos.text() == "Обработка…" and win.progress.value() == 1000,
+              win.lbl_pos.text())
+        win._dl_end()
+        check("скачивание: полоса возвращается к треку",
+              not win._downloading and win.lbl_dur.text() == "—:—"
+              and win.progress.value() == 0)
+        win._on_position(30.0, 120.0)
+        check("скачивание: после конца полоса снова показывает трек",
+              win.lbl_dur.text() == "2:00" and win.progress.value() == 250,
+              "dur=%s value=%d" % (win.lbl_dur.text(), win.progress.value()))
+except Exception as exc:
+    import traceback
+    traceback.print_exc()
+    check("скачивание: индикатор", False, str(exc))
+
 # 7. настройки на месте
 settings = QSettings("radiofm", "radiofm")
 settings.setValue("smoke", "1")

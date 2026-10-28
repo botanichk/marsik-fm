@@ -26,7 +26,7 @@ from PySide6.QtGui import QDesktopServices, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QDialog, QDialogButtonBox, QFormLayout, QFrame,
     QGraphicsOpacityEffect, QHBoxLayout, QLabel, QLineEdit,
-    QMainWindow, QMessageBox, QProgressBar, QSlider, QStackedWidget,
+    QMainWindow, QMessageBox, QSlider, QStackedWidget,
     QStyle, QToolButton, QVBoxLayout, QWidget,
 )
 
@@ -76,8 +76,9 @@ def _elide(text, widget, px):
 _VIZ_NAMES = ["Glowing Wave", "Nebulous", "Galaxy", "Oscilloscope", "Aurora"]
 
 _YTDLP = shutil.which("yt-dlp") or ""
-# yt-dlp: строка прогресса "[download]  45.2% of ..."
+# yt-dlp: строка прогресса "[download]  45.2% of ... ETA 00:12"
 _DL_PCT_RE = re.compile(r"\[download\]\s+(\d{1,3}(?:\.\d+)?)%")
+_DL_ETA_RE = re.compile(r"ETA\s+(\d{1,2}:\d{2}(?::\d{2})?)")
 
 _STATUS_TEXT = {
     STOPPED: "Остановлено", CONNECTING: "Подключение…", PLAYING: "Играет",
@@ -151,20 +152,6 @@ QToolButton#save:disabled {
     background: ${btn_bg};
     color: ${disabled};
     border: 1px solid ${line2};
-}
-QProgressBar#dlProgress {
-    background: ${prog_bg};
-    border: none;
-    border-radius: 5px;
-    height: 10px;
-    text-align: center;
-    font-size: 10px;
-    color: #ffffff;
-}
-QProgressBar#dlProgress::chunk {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 ${prog_a}, stop:1 ${prog_b});
-    border-radius: 5px;
 }
 QToolButton {
     background: ${btn_bg};
@@ -297,6 +284,7 @@ class MainWindow(QMainWindow):
         self._last_error = ""
         self._track = ""            # текущий трек (метаданные)
         self._dl_proc = None        # активный процесс yt-dlp
+        self._dl_buf = ""           # недописанная строка вывода yt-dlp
         self._local = False         # играет локальный файл (не радио)
         self._queue = []            # очередь локальных файлов (плейлист)
         self._queue_pos = 0         # позиция в очереди (1-based, для статуса)
@@ -550,16 +538,8 @@ class MainWindow(QMainWindow):
         root.addWidget(prog_frame)
         self._seek_dragging = False
         self._dur = 0.0
-
-        # прогресс скачивания (скрыт, когда не качаем)
-        self.dl_progress = QProgressBar()
-        self.dl_progress.setObjectName("dlProgress")
-        self.dl_progress.setRange(0, 100)
-        self.dl_progress.setTextVisible(True)
-        self.dl_progress.setFormat("%p%")
-        self.dl_progress.setFixedHeight(10)
-        self.dl_progress.hide()
-        root.addWidget(self.dl_progress)
+        self._downloading = False   # идёт скачивание: полоса показывает его
+        self._dl_pct = 0
 
         root.addWidget(player)
 
@@ -1009,30 +989,44 @@ class MainWindow(QMainWindow):
         self._dl_proc.readyRead.connect(self._on_dl_output)
         self._dl_proc.finished.connect(self._on_dl_finished)
         # ищем трек на YouTube, качаем аудио, конвертируем в mp3
+        # (без --no-progress: он глушит именно строки с процентами)
         args = [
-            _YTDLP, "-x", "--audio-format", "mp3", "--no-progress",
-            "--newline", "--no-playlist",
+            _YTDLP, "-x", "--audio-format", "mp3", "--newline",
+            "--no-playlist", "--no-colors",
             "-o", os.path.join(DL_DIR, "%(title).120B.%(ext)s"),
             "ytsearch1:" + self._track,
         ]
+        self._dl_buf = ""
         self._dl_proc.start(args[0], args[1:])
-        self.dl_progress.setValue(0)
-        self.dl_progress.show()
+        self._dl_begin()
         self.btn_save.setText("Отмена")
         self.btn_save.setEnabled(True)
 
     def _on_dl_output(self):
+        """Читаем вывод yt-dlp и обновляем полосу процентами.
+
+        readyRead отдаёт куски, а не строки: последняя строка может прийти
+        недописанной, поэтому хвост держим в буфере до следующего чтения.
+        """
         data = bytes(self._dl_proc.readAllStandardOutput()).decode(
             "utf-8", "replace")
-        m = _DL_PCT_RE.findall(data)
-        if m:
-            self.dl_progress.setValue(int(float(m[-1])))
+        text = self._dl_buf + data
+        *lines, self._dl_buf = text.split("\n")
+        for line in lines:
+            m = _DL_PCT_RE.search(line)
+            if not m:
+                continue
+            self._dl_set_pct(float(m.group(1)))
+            eta = _DL_ETA_RE.search(line)
+            if eta and self._dl_pct < 100:
+                self.lbl_pos.setText("Скачивание · %s" % eta.group(1))
 
     def _on_dl_finished(self, code, status):
         proc = self._dl_proc
         self._dl_proc = None
-        self.dl_progress.hide()
+        self._dl_buf = ""
         proc.deleteLater()
+        self._dl_end()
         if code == 0:
             self._flash_pill("✓ Сохранено!", "#2a9d6a")
         else:
@@ -1150,6 +1144,8 @@ class MainWindow(QMainWindow):
         if not self._local:
             self._reset_progress_ui()
             return
+        if self._downloading:
+            return          # полоса занята скачиванием
         self._dur = dur or 0.0
         if self._dur > 0:
             self.lbl_dur.setText(fmt_time(self._dur))
@@ -1177,11 +1173,47 @@ class MainWindow(QMainWindow):
             self.engine.seek(self._dur * self.progress.value() / 1000.0)
 
     def _reset_progress_ui(self):
+        if self._downloading:
+            return          # полоса занята скачиванием — не трогаем
         self._dur = 0.0
         self.progress.setValue(0)
         self.progress.setEnabled(False)
         self.lbl_pos.setText("0:00")
         self.lbl_dur.setText("—:—")
+
+    # ---------- полоса как индикатор скачивания ----------
+
+    def _dl_begin(self):
+        """Скачивание стартовало: полоса переключается в режим процентов."""
+        self._downloading = True
+        self._dl_pct = 0
+        self._seek_dragging = False
+        self.progress.setEnabled(False)     # перематывать во время загрузки нечего
+        self.progress.setToolTip("Скачивание трека…")
+        self.progress.setValue(0)
+        self.lbl_pos.setText("Скачивание")
+        self.lbl_dur.setText("0%")
+
+    def _dl_set_pct(self, pct):
+        pct = max(0, min(100, int(round(pct))))
+        self._dl_pct = pct
+        self.progress.setValue(pct * 10)    # шкала полосы — промилле
+        self.lbl_dur.setText("%d%%" % pct)
+        if pct >= 100:
+            # после 100% yt-dlp ещё конвертирует в mp3 — это не мгновенно
+            self.lbl_pos.setText("Обработка…")
+            self.progress.setToolTip("Скачано, идёт конвертация в mp3…")
+
+    def _dl_end(self):
+        """Скачивание закончилось: возвращаем полосу к воспроизведению."""
+        self._downloading = False
+        self.progress.setToolTip(
+            "Перемотка трека (для радио недоступна — поток без длительности)")
+        self.lbl_pos.setText("0:00")
+        self.lbl_dur.setText("—:—")
+        self.progress.setValue(0)
+        self.progress.setEnabled(False)
+        self._dur = 0.0
 
     def _on_queue_pos(self, pos, count):
         """Позиция в очереди от mpv → подпись «3 / 6» в статусе."""
