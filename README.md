@@ -10,10 +10,56 @@ cd ~/radiofm
 python3 main.py
 ```
 
-Сборка не требуется. Зависимости: `python3-pyside6`, `mpv`, `yt-dlp` (для
-скачивания треков), GStreamer с `gst-plugins-good` (для визуализаторов),
-`python3-mutagen` (длительности треков; без него — ffprobe).
-Проверить: `python3 -c "import PySide6"`, `mpv --version`, `which yt-dlp`.
+Сборка не требуется. Проверить: `python3 -c "import PySide6"`, `mpv --version`,
+`which yt-dlp`.
+
+## Установка на другом компьютере
+
+Нужны python3 и пакеты (имена по дистрибутивам):
+
+| Что | Зачем | Void | Arch | Debian/Ubuntu |
+|-----|-------|------|------|---------------|
+| PySide6 | интерфейс | `python3-pyside6` | `pyside6` | `python3-pyside6.qtgui python3-pyside6.qtwidgets` |
+| mpv | звук (внешний плеер) | `mpv` | `mpv` | `mpv` |
+| yt-dlp | «Сохранить» | `yt-dlp` | `yt-dlp` | `yt-dlp` |
+| mutagen | длительности быстрее | `python3-mutagen` | `python-mutagen` | `python3-mutagen` |
+| ffprobe | длительности (запасной путь) | `ffmpeg6` | `ffmpeg` | `ffmpeg` |
+| pactl | перехват звука | `pulseaudio-utils` | `libpulse` | `pulseaudio-utils` |
+| PyGObject + GStreamer | визуализаторы | `python3-gobject gst-plugins-good1` | `python-gobject gst-plugins-good` | `python3-gi gstreamer1.0-plugins-good` |
+
+```bash
+# Void
+sudo xbps-install -S python3-pyside6 mpv yt-dlp python3-mutagen ffmpeg6 \
+                     pulseaudio-utils python3-gobject gst-plugins-good1
+# Arch
+sudo pacman -S --needed pyside6 mpv yt-dlp python-mutagen ffmpeg libpulse \
+                        python-gobject gst-plugins-good
+# Debian/Ubuntu
+sudo apt install python3-pyside6.qtgui python3-pyside6.qtwidgets mpv yt-dlp \
+                 python3-mutagen ffmpeg pulseaudio-utils python3-gi \
+                 gstreamer1.0-plugins-good
+```
+
+Дальше — `python3 main.py` в папке проекта. Если PySide6 в дистрибутиве нет
+или он старый:
+
+```bash
+python3 -m venv .venv && .venv/bin/pip install PySide6
+.venv/bin/python main.py
+```
+
+С собой (или в репозиторий) нужно взять данные, которые не в коде:
+`stations.json` — станции; `themes/*.json` — свои темы; `backgrounds/` — фоны;
+`assets/icon.png` — иконка окна. Без них программа запустится, но со встроенными
+темами, пустым списком фонов и иконкой по умолчанию. Настройки (громкость,
+тема, фон, станция) — в `~/.config/radiofm/radiofm.conf`, качанные треки — в
+XDG-папке «Музыка» (`~/Музыка` или `~/Music`).
+
+Шрифт часов `Bitcount Single Cursive` — необязательный: без него время
+рисуется системным шрифтом.
+
+Визуализаторы без GStreamer/PyGObject просто не получают данных (тишина в
+волне), остальное работает.
 
 ## Как пользоваться
 
