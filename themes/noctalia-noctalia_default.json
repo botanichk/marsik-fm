@@ -1,0 +1,17 @@
+{
+  "name": "Noctalia",
+  "dark": true,
+  "primary": "#fff59b",
+  "secondary": "#a9aefe",
+  "tertiary": "#9bfece",
+  "surface": "#070722",
+  "on_surface": "#f3edf7",
+  "canvas": "#11112d",
+  "ramp": [
+    "#9bfece",
+    "#a9aefe",
+    "#fd4663",
+    "#9bfece"
+  ],
+  "viz_bg": "#050516"
+}

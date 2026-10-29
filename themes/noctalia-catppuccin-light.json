@@ -1,0 +1,17 @@
+{
+  "name": "Catppuccin Light",
+  "dark": false,
+  "primary": "#8839ef",
+  "secondary": "#fe640b",
+  "tertiary": "#40a02b",
+  "surface": "#eff1f5",
+  "on_surface": "#4c4f69",
+  "canvas": "#ccd0da",
+  "ramp": [
+    "#a6d189",
+    "#8caaee",
+    "#f4b8e4",
+    "#81c8be"
+  ],
+  "viz_bg": "#2b2b2c"
+}

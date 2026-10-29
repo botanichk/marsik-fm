@@ -1,0 +1,17 @@
+{
+  "name": "Nord Light",
+  "dark": false,
+  "primary": "#5e81ac",
+  "secondary": "#64adc2",
+  "tertiary": "#6fa9a8",
+  "surface": "#eceff4",
+  "on_surface": "#2e3440",
+  "canvas": "#e5e9f0",
+  "ramp": [
+    "#96b17f",
+    "#81a1c1",
+    "#b48ead",
+    "#7bb3c3"
+  ],
+  "viz_bg": "#2a2b2c"
+}

@@ -1,0 +1,17 @@
+{
+  "name": "Noctalia Light",
+  "dark": false,
+  "primary": "#5d65f5",
+  "secondary": "#8e93d8",
+  "tertiary": "#0e0e43",
+  "surface": "#e6e8fa",
+  "on_surface": "#0e0e43",
+  "canvas": "#eff0ff",
+  "ramp": [
+    "#0e0e43",
+    "#8e93d8",
+    "#fd4663",
+    "#0e0e43"
+  ],
+  "viz_bg": "#292a2d"
+}

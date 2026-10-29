@@ -1,0 +1,17 @@
+{
+  "name": "Dracula",
+  "dark": true,
+  "primary": "#bd93f9",
+  "secondary": "#ff79c6",
+  "tertiary": "#8be9fd",
+  "surface": "#282a36",
+  "on_surface": "#f8f8f2",
+  "canvas": "#44475a",
+  "ramp": [
+    "#69ff94",
+    "#d6acff",
+    "#ff92df",
+    "#a4ffff"
+  ],
+  "viz_bg": "#1a1b23"
+}

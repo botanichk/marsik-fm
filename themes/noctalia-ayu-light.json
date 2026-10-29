@@ -1,0 +1,17 @@
+{
+  "name": "Ayu Light",
+  "dark": false,
+  "primary": "#ff8f40",
+  "secondary": "#86b300",
+  "tertiary": "#55b4d4",
+  "surface": "#f8f9fa",
+  "on_surface": "#42474c",
+  "canvas": "#e4e6e9",
+  "ramp": [
+    "#6cbf43",
+    "#3199e1",
+    "#9e75c7",
+    "#46ba94"
+  ],
+  "viz_bg": "#2d2d2d"
+}

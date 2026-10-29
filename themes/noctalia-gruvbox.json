@@ -1,0 +1,17 @@
+{
+  "name": "Gruvbox",
+  "dark": true,
+  "primary": "#b8bb26",
+  "secondary": "#fabd2f",
+  "tertiary": "#83a598",
+  "surface": "#282828",
+  "on_surface": "#fbf1c7",
+  "canvas": "#3c3836",
+  "ramp": [
+    "#b8bb26",
+    "#83a598",
+    "#d3869b",
+    "#8ec07c"
+  ],
+  "viz_bg": "#1a1a1a"
+}

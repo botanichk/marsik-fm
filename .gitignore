@@ -3,3 +3,5 @@ __pycache__/
 preview*.png
 backgrounds/
 downloads/
+radio_backup*/
+.perch/

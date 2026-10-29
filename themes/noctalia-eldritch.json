@@ -1,0 +1,17 @@
+{
+  "name": "Eldritch",
+  "dark": true,
+  "primary": "#37f499",
+  "secondary": "#04d1f9",
+  "tertiary": "#a48cf2",
+  "surface": "#212337",
+  "on_surface": "#ebfafa",
+  "canvas": "#292e42",
+  "ramp": [
+    "#69f8b3",
+    "#a48cf2",
+    "#fd92ce",
+    "#66e4fd"
+  ],
+  "viz_bg": "#151724"
+}

@@ -1,0 +1,17 @@
+{
+  "name": "Dracula Light",
+  "dark": false,
+  "primary": "#8332f4",
+  "secondary": "#ff1399",
+  "tertiary": "#0398b9",
+  "surface": "#f8f8f2",
+  "on_surface": "#282a36",
+  "canvas": "#e6e6ea",
+  "ramp": [
+    "#50fa7b",
+    "#bd93f9",
+    "#ff79c6",
+    "#8be9fd"
+  ],
+  "viz_bg": "#2d2d2c"
+}

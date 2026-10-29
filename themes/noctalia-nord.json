@@ -1,0 +1,17 @@
+{
+  "name": "Nord",
+  "dark": true,
+  "primary": "#8fbcbb",
+  "secondary": "#88c0d0",
+  "tertiary": "#5e81ac",
+  "surface": "#2e3440",
+  "on_surface": "#eceff4",
+  "canvas": "#3b4252",
+  "ramp": [
+    "#a3be8c",
+    "#81a1c1",
+    "#b48ead",
+    "#8fbcbb"
+  ],
+  "viz_bg": "#1e222a"
+}

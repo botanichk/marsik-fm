@@ -1,0 +1,17 @@
+{
+  "name": "Rosé Pine",
+  "dark": true,
+  "primary": "#ebbcba",
+  "secondary": "#9ccfd8",
+  "tertiary": "#31748f",
+  "surface": "#191724",
+  "on_surface": "#e0def4",
+  "canvas": "#26233a",
+  "ramp": [
+    "#31748f",
+    "#9ccfd8",
+    "#c4a7e7",
+    "#ebbcba"
+  ],
+  "viz_bg": "#100f17"
+}

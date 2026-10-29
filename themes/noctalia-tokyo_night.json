@@ -1,0 +1,17 @@
+{
+  "name": "Tokyo-Night",
+  "dark": true,
+  "primary": "#7aa2f7",
+  "secondary": "#bb9af7",
+  "tertiary": "#9ece6a",
+  "surface": "#1a1b26",
+  "on_surface": "#c0caf5",
+  "canvas": "#24283b",
+  "ramp": [
+    "#9ece6a",
+    "#7aa2f7",
+    "#bb9af7",
+    "#7dcfff"
+  ],
+  "viz_bg": "#111219"
+}

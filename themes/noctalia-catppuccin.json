@@ -1,0 +1,17 @@
+{
+  "name": "Catppuccin",
+  "dark": true,
+  "primary": "#cba6f7",
+  "secondary": "#fab387",
+  "tertiary": "#94e2d5",
+  "surface": "#1e1e2e",
+  "on_surface": "#cdd6f4",
+  "canvas": "#313244",
+  "ramp": [
+    "#89d88b",
+    "#74a8fc",
+    "#f2aede",
+    "#6bd7ca"
+  ],
+  "viz_bg": "#14141e"
+}

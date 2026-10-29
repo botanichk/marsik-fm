@@ -1,0 +1,17 @@
+{
+  "name": "Kanagawa Light",
+  "dark": false,
+  "primary": "#6f894e",
+  "secondary": "#77713f",
+  "tertiary": "#4d699b",
+  "surface": "#f2ecbc",
+  "on_surface": "#545464",
+  "canvas": "#e5ddb0",
+  "ramp": [
+    "#6f894e",
+    "#4d699b",
+    "#b35b79",
+    "#597b75"
+  ],
+  "viz_bg": "#2c2a22"
+}

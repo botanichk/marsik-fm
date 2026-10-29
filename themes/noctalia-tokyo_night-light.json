@@ -1,0 +1,17 @@
+{
+  "name": "Tokyo-Night Light",
+  "dark": false,
+  "primary": "#2e7de9",
+  "secondary": "#9854f1",
+  "tertiary": "#587539",
+  "surface": "#e1e2e7",
+  "on_surface": "#3760bf",
+  "canvas": "#d0d5e3",
+  "ramp": [
+    "#587539",
+    "#2e7de9",
+    "#9854f1",
+    "#007197"
+  ],
+  "viz_bg": "#28292a"
+}

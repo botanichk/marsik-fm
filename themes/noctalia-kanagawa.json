@@ -1,0 +1,17 @@
+{
+  "name": "Kanagawa",
+  "dark": true,
+  "primary": "#76946a",
+  "secondary": "#c0a36e",
+  "tertiary": "#7e9cd8",
+  "surface": "#1f1f28",
+  "on_surface": "#c8c093",
+  "canvas": "#2a2a37",
+  "ramp": [
+    "#98bb6c",
+    "#7fb4ca",
+    "#938aa9",
+    "#7aa89f"
+  ],
+  "viz_bg": "#14141a"
+}

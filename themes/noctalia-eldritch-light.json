@@ -1,0 +1,17 @@
+{
+  "name": "Eldritch Light",
+  "dark": false,
+  "primary": "#37f499",
+  "secondary": "#04d1f9",
+  "tertiary": "#a48cf2",
+  "surface": "#ffffff",
+  "on_surface": "#171928",
+  "canvas": "#f2f4f8",
+  "ramp": [
+    "#1a7f4c",
+    "#3a3e8c",
+    "#8c2a6c",
+    "#1a6c8c"
+  ],
+  "viz_bg": "#2e2e2e"
+}
