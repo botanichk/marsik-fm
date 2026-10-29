@@ -8,6 +8,7 @@
 """
 import math
 import os
+import re
 import sys
 import time
 
@@ -78,6 +79,68 @@ try:
     check("скачивание: пилюля+кнопка+меню на месте",
           win.dl_pill is not None and win.btn_save is not None
           and win.dl_menu is not None)
+    # длинное имя трека не растягивает пилюлю (ширина ограничена, текст с «…»)
+    win.dl_pill.setText("Очень длинное название трека " * 4)
+    check("длинное имя не растягивает пилюлю",
+          win.dl_pill.sizeHint().width() < 260
+          and win.dl_pill.text().endswith("…")
+          and "\n" in win.dl_pill.toolTip())
+    # часы в правом углу шапки
+    check("часы в шапке показывают время",
+          re.fullmatch(r"\d{2}:\d{2}", win.clock.text()) is not None,
+          win.clock.text())
+    # перетаскивание станций: порядок меняется и уходит в save_stations
+    from PySide6.QtCore import QEvent, QPointF, Qt as _Qt
+    from PySide6.QtGui import QMouseEvent
+    import radio.ui as _ui
+    m = win.menu
+    m.open_menu()
+    m._p, m._scroll = 1.0, 0
+    rows = m._rows
+    cx = m.width() // 2
+
+    def _mev(kind, yy):
+        return QMouseEvent(kind, QPointF(cx, yy), QPointF(cx, yy),
+                           _Qt.LeftButton, _Qt.LeftButton, _Qt.NoModifier)
+
+    y0 = rows[0][1] + rows[0][2] // 2
+    y2 = rows[2][1] + rows[2][2] // 2
+    saved_orders = []
+    orig_save = _ui.save_stations
+    _ui.save_stations = lambda sts: saved_orders.append(
+        [s["id"] for s in sts])       # файл проекта не трогаем
+    first_id = win.stations[0]["id"]
+    m.mousePressEvent(_mev(QEvent.MouseButtonPress, y0))
+    m.mouseMoveEvent(_mev(QEvent.MouseMove, y0 + 10))
+    m.mouseMoveEvent(_mev(QEvent.MouseMove, y2 + 12))
+    m.mouseReleaseEvent(_mev(QEvent.MouseButtonRelease, y2 + 12))
+    _ui.save_stations = orig_save
+    m.close_menu()
+    check("перетаскивание станции меняет порядок и сохраняется",
+          win.stations[0]["id"] != first_id
+          and saved_orders[-1:] == [[s["id"] for s in win.stations]])
+
+    # разбор вывода yt-dlp: проценты приходят кусками (readyRead не по строкам)
+    class _FakeProc:
+        def __init__(self, chunks):
+            self.chunks = list(chunks)
+
+        def readAllStandardOutput(self):
+            return self.chunks.pop(0)
+
+    win._dl_proc = _FakeProc([b"[download]  4", b"2.5% of 3MiB\n",
+                              b"[ExtractAudio] Destination: x.mp3\n"])
+    win._dl_buf = ""
+    win._on_dl_output()
+    partial = win.dl_progress.value()
+    win._on_dl_output()
+    whole = win.dl_progress.value()
+    win._on_dl_output()
+    win._dl_proc = None
+    check("скачивание: проценты из вывода yt-dlp видны в полосе",
+          partial < 1 and whole == 42
+          and win.dl_progress.value() == 42,
+          "%s → %s → %s" % (partial, whole, win.dl_progress.value()))
     # без трека и без yt-dlp-процесса кнопка неактивна
     check("без трека кнопка «Сохранить» неактивна",
           not win.btn_save.isEnabled())

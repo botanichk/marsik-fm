@@ -13,34 +13,40 @@ QProcess — интерфейс не замирает.
 прежней — маскот-кот убран из интерфейса (вернёмся к коту-бонго позже).
 """
 import os
+import random
 import re
 import shutil
 from string import Template
 
 from PySide6.QtCore import (
-    QAbstractAnimation, QPropertyAnimation, QProcess, QSettings,
-    QStandardPaths, Qt, QTimer,
+    QAbstractAnimation, QEvent, QPropertyAnimation, QProcess, QSettings,
+    QStandardPaths, Qt, QTime, QTimer,
 )
-from PySide6.QtCore import QUrl
-from PySide6.QtGui import QDesktopServices, QIcon, QPainter, QPixmap
+from PySide6.QtCore import QUrl, Signal
+from PySide6.QtGui import (
+    QColor, QDesktopServices, QFont, QIcon, QPainter, QPixmap,
+)
 from PySide6.QtWidgets import (
-    QDialog, QDialogButtonBox, QFormLayout, QFrame,
-    QGraphicsOpacityEffect, QHBoxLayout, QLabel, QLineEdit,
-    QMainWindow, QMessageBox, QSlider, QStackedWidget,
-    QStyle, QToolButton, QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QFrame,
+    QGraphicsOpacityEffect, QHBoxLayout, QLabel, QLineEdit, QMenu,
+    QMainWindow, QMessageBox, QProgressBar, QSlider, QStackedWidget,
+    QSizePolicy, QStyle, QToolButton, QVBoxLayout, QWidget,
 )
 
 from .island import IslandMenu
-from .theme import THEMES_DIR, hexs, manager as themes, rgba
+from .playlist import DurationProbe, PlayQueue, fmt_time
+from .theme import THEMES_DIR, hexs, manager as themes
 from .engine import AudioEngine, CONNECTING, ERROR, PAUSED, PLAYING, STOPPED
 from .stations import DEFAULT_PATH, load_stations, save_stations
 from .tap import AudioTap
-from .tracks import duration as track_duration, fmt_time
 from .viz.glowing_wave import GlowingWave
 from .viz.nebulous import Nebulous
 from .viz.galaxy import Galaxy
 from .viz.oscilloscope import Oscilloscope
-from .viz.aurora import Aurora
+from .viz.ring import Ring
+from .viz.bars import Bars
+from .viz.fireflies import Fireflies
+from .viz.liquid import Liquid
 
 # папка для треков: XDG «Музыка» (~/.config/user-dirs.dirs, локаль-независимо)
 DL_DIR = (QStandardPaths.writableLocation(QStandardPaths.MusicLocation)
@@ -67,27 +73,33 @@ def _bg_label(name):
     return os.path.splitext(name)[0].replace("_", " ").replace("-", " ")
 
 
-def _elide(text, widget, px):
-    """Обрезает текст многоточием под ширину px (длинные имена файлов)."""
-    fm = widget.fontMetrics()
-    return fm.elidedText(text, Qt.ElideMiddle, px)
+_VIZ_NAMES = ["Glowing Wave", "Ring", "Bars", "Fireflies", "Liquid",
+              "Galaxy", "Oscilloscope", "Nebulous"]
 
-
-_VIZ_NAMES = ["Glowing Wave", "Nebulous", "Galaxy", "Oscilloscope", "Aurora"]
+# шрифт часов — как у виджета часов в Noctalia, но плотнее: ExtraLight
+# (тот, что в виджете) на тёмном фоне читается плохо, SemiBold держит
+# тот же точечный рисунок и виден издалека
+CLOCK_FONT = "Bitcount Single Cursive SemiBold"
+CLOCK_FORMAT = "HH:mm"
 
 _YTDLP = shutil.which("yt-dlp") or ""
-# yt-dlp: строка прогресса "[download]  45.2% of ... ETA 00:12"
+# yt-dlp: строка прогресса "[download]  45.2% of ..."
 _DL_PCT_RE = re.compile(r"\[download\]\s+(\d{1,3}(?:\.\d+)?)%")
-_DL_ETA_RE = re.compile(r"ETA\s+(\d{1,2}:\d{2}(?::\d{2})?)")
 
-# состояние -> цвет индикации (текст «Играет»/«Пауза» не выводится: это и так
-# видно по кнопке и по движущейся полосе)
-def _status_color(state):
+_STATUS_TEXT = {
+    STOPPED: "Остановлено", CONNECTING: "Подключение…", PLAYING: "Играет",
+    PAUSED: "Пауза", ERROR: "Ошибка",
+}
+
+
+def _status_for(state):
+    """(текст, цвет) статуса — цвет берётся из текущей темы."""
     th = themes.current
-    return {
+    color = {
         STOPPED: th.muted, CONNECTING: th.warn, PLAYING: th.ok,
         PAUSED: th.warn, ERROR: th.err,
     }.get(state, th.muted)
+    return _STATUS_TEXT.get(state, "…"), hexs(color)
 
 
 # таблица стилей — шаблон: цвета подставляются из темы (theme.py)
@@ -99,12 +111,16 @@ QWidget {
 QLabel#logo { font-size: 24px; font-weight: 800; color: ${title}; }
 QLabel#tagline { font-size: 11px; color: ${accent}; letter-spacing: 2px; }
 QLabel#slogan { font-size: 13px; color: ${muted}; font-style: italic; }
+QLabel#clock {
+    font-family: "Bitcount Single Cursive SemiBold";
+    font-size: 40px;
+    color: ${primary};
+}
 QLabel#section { font-size: 12px; color: ${muted}; letter-spacing: 2px; }
 QLabel#station { font-size: 20px; font-weight: bold; color: ${text}; }
 QLabel#desc { color: ${muted}; font-size: 13px; }
 QLabel#track { color: ${accent}; font-size: 14px; }
-QLabel#timepos { font-size: 12px; color: ${muted}; }
-QLabel#queuepos { font-size: 12px; color: ${muted}; }
+QLabel#status { font-size: 13px; }
 QFrame#panel {
     background: ${panel_bg};
     border: 1px solid ${line};
@@ -114,11 +130,6 @@ QFrame#playerBar {
     background: ${bar_bg};
     border: 1px solid ${line};
     border-radius: 22px;
-}
-QFrame#progressBar {
-    background: ${bar_bg};
-    border: 1px solid ${line};
-    border-radius: 14px;
 }
 QToolButton#pill {
     background: ${pill_bg};
@@ -148,6 +159,20 @@ QToolButton#save:disabled {
     color: ${disabled};
     border: 1px solid ${line2};
 }
+QProgressBar#dlProgress {
+    background: ${prog_bg};
+    border: none;
+    border-radius: 5px;
+    height: 10px;
+    text-align: center;
+    font-size: 10px;
+    color: #ffffff;
+}
+QProgressBar#dlProgress::chunk {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 ${prog_a}, stop:1 ${prog_b});
+    border-radius: 5px;
+}
 QToolButton {
     background: ${btn_bg};
     border: 1px solid ${line2};
@@ -157,6 +182,21 @@ QToolButton {
 QToolButton:hover { background: ${btn_hover}; }
 QToolButton:pressed { background: ${btn_press}; }
 QToolButton:disabled { color: ${disabled}; }
+QToolButton:checked {
+    background: ${primary_a};
+    color: ${on_primary};
+    border: 1px solid ${primary_border};
+}
+QLabel#seekTime { color: ${muted}; font-size: 12px; }
+QProgressBar#busy {
+    background: ${prog_bg};
+    border: none;
+    border-radius: 3px;
+}
+QProgressBar#busy::chunk {
+    background: ${primary};
+    border-radius: 3px;
+}
 QToolButton#play {
     background: ${pill_bg};
     border: 2px solid ${primary};
@@ -170,6 +210,8 @@ QComboBox {
     border-radius: 8px;
     padding: 5px 10px;
 }
+QCheckBox { color: ${muted}; }
+QCheckBox:hover { color: ${text}; }
 QSlider::groove:horizontal {
     height: 4px;
     background: ${line3};
@@ -185,29 +227,6 @@ QSlider::sub-page:horizontal {
     background: ${primary};
     border-radius: 2px;
 }
-QSlider#progress {
-    min-height: 18px;
-}
-QSlider#progress::groove:horizontal {
-    height: 6px;
-    background: ${line3};
-    border-radius: 3px;
-}
-QSlider#progress::handle:horizontal {
-    width: 12px;
-    margin: -4px 0;
-    border-radius: 6px;
-    background: ${primary};
-}
-QSlider#progress::sub-page:horizontal {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 ${prog_a}, stop:1 ${prog_b});
-    border-radius: 3px;
-}
-QSlider#progress:disabled::handle:horizontal {
-    background: ${disabled};
-}
-QLabel#timepos { font-size: 12px; color: ${muted}; }
 QDialog, QMessageBox { background: ${surface}; }
 QLineEdit {
     background: ${field};
@@ -240,6 +259,55 @@ def build_style(th):
 STYLE = build_style(themes.current)   # main.py ставит его как есть
 
 
+class _FadeMenu(QMenu):
+    """Меню с плавным появлением (fade-in 140 мс)."""
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        eff = QGraphicsOpacityEffect(self)
+        eff.setOpacity(0.0)
+        self.setGraphicsEffect(eff)
+        anim = QPropertyAnimation(eff, b"opacity", self)
+        anim.setDuration(140)
+        anim.setStartValue(0.0)
+        anim.setEndValue(1.0)
+        anim.start(QAbstractAnimation.DeleteWhenStopped)
+
+
+class _SeekSlider(QSlider):
+    """Полоса перемотки: клик и перетаскивание, seekRequested(0..1)."""
+    seekRequested = Signal(float)
+
+    def __init__(self, parent=None):
+        super().__init__(Qt.Horizontal, parent)
+        self.setRange(0, 1000)
+        self.dragging = False
+        self.setCursor(Qt.PointingHandCursor)
+
+    def _val_at(self, x):
+        return QStyle.sliderValueFromPosition(
+            self.minimum(), self.maximum(), int(x), max(1, self.width()))
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.LeftButton:
+            self.dragging = True
+            self.setValue(self._val_at(e.position().x()))
+            e.accept()
+        else:
+            super().mousePressEvent(e)
+
+    def mouseMoveEvent(self, e):
+        if self.dragging:
+            self.setValue(self._val_at(e.position().x()))
+            e.accept()
+
+    def mouseReleaseEvent(self, e):
+        if self.dragging and e.button() == Qt.LeftButton:
+            self.dragging = False
+            self.seekRequested.emit(self.value() / float(self.maximum()))
+            e.accept()
+
+
 class _Canvas(QWidget):
     """Центральный холст: рисует оконный фон (картинка + вуаль)."""
 
@@ -267,12 +335,54 @@ class _Canvas(QWidget):
             p.fillRect(self.rect(), themes.current.q(themes.current.canvas))
 
 
+class Pill(QToolButton):
+    """Пилюля-остров фиксированной ширины: длинный текст режется многоточием.
+
+    Без ограничения кнопка растягивалась под длинное имя трека/станции и
+    сдвигала всю шапку. Полный текст остаётся в подсказке.
+    """
+
+    def __init__(self, max_width=220, parent=None):
+        super().__init__(parent)
+        self._max_w = max_width
+        self._hint = ""
+        self._full = ""
+        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+
+    def setText(self, text):
+        self._full = text
+        self._apply()
+
+    def fullText(self):
+        return self._full
+
+    def setToolTip(self, tip):
+        self._hint = tip
+        self._apply()
+
+    def _apply(self):
+        avail = self._max_w - 32          # padding 14+14 из QSS + рамка
+        shown = self.fontMetrics().elidedText(self._full, Qt.ElideRight, avail)
+        super().setText(shown)
+        if shown != self._full:
+            tip = self._full + ("\n" + self._hint if self._hint else "")
+        else:
+            tip = self._hint
+        super().setToolTip(tip)
+        self.updateGeometry()
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.FontChange:   # QSS применил свой шрифт
+            self._apply()
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Marsik FM")
         self.resize(1100, 640)
-        self.setMinimumSize(1100, 560)
+        self.setMinimumSize(0, 560)   # ширину задаёт шапка
         self.settings = QSettings("radiofm", "radiofm")
         self.engine = AudioEngine(parent=self)
         self._playing_id = None
@@ -280,18 +390,12 @@ class MainWindow(QMainWindow):
         self._track = ""            # текущий трек (метаданные)
         self._dl_proc = None        # активный процесс yt-dlp
         self._dl_buf = ""           # недописанная строка вывода yt-dlp
-        self._dl_had_pct = False    # пришли ли хоть какие-то проценты
-        self._dl_already = False    # файл уже был в «Музыке»
-        self._dl_tick = 0           # запасной ход полосы без процентов
-        self._dl_timer = QTimer(self)
-        self._dl_timer.setInterval(400)
-        self._dl_timer.timeout.connect(self._dl_tick_progress)
         self._local = False         # играет локальный файл (не радио)
-        self._queue = []            # очередь локальных файлов (плейлист)
-        self._queue_pos = 0         # позиция в очереди (1-based, для статуса)
-        self._queue_total = 0
-        self._shuffle = False       # порядок очереди: вперемешку / по порядку
         self._viz_idx = 0           # выбранный режим визуализатора
+        self.queue = PlayQueue()    # очередь скачанных треков
+        self.durations = DurationProbe(self)
+        self._dl_actions = {}       # путь → пункт списка (для времени)
+        self._cur_dur = 0.0         # длительность играющего файла
         self._bg_name = None        # выбранный фон (имя файла) или None
 
         self._build()
@@ -302,11 +406,16 @@ class MainWindow(QMainWindow):
         self.engine.stateChanged.connect(self._on_state)
         self.engine.trackChanged.connect(self._on_track)
         self.engine.errorRaised.connect(self._on_error)
-        self.engine.playlistChanged.connect(self._on_queue_pos)
         self.engine.positionChanged.connect(self._on_position)
-        self.engine.seekableChanged.connect(self._on_seekable)
+        self.engine.fileEnded.connect(self._on_file_ended)
+        self.durations.ready.connect(self._on_duration_ready)
         self._on_state(self.engine.state)
 
+        # минимальная ширина шапки без слогана и подписи — от неё считаем,
+        # когда их можно показать (resizeEvent)
+        self.tagline.hide()
+        self.slogan.hide()
+        self._hdr_base = self.centralWidget().minimumSizeHint().width()
         themes.changed.connect(self._apply_theme)
         self._apply_theme()
         # main.py ставит STYLE уже после создания окна — перекрываем
@@ -325,14 +434,15 @@ class MainWindow(QMainWindow):
         header.setObjectName("panel")
         hbox = QHBoxLayout(header)
         hbox.setContentsMargins(18, 8, 18, 8)
-        logo_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            "backgrounds", "logo.png")
+        root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        logo_path = os.path.join(root_dir, "assets", "icon.png")
+        if not os.path.exists(logo_path):
+            logo_path = os.path.join(root_dir, "backgrounds", "logo.png")
         if os.path.exists(logo_path):
+            self.setWindowIcon(QIcon(logo_path))
             logo_pic = QLabel()
             logo_pic.setPixmap(QPixmap(logo_path).scaled(
-                58, 58, Qt.KeepAspectRatioByExpanding,
-                Qt.SmoothTransformation))
+                60, 60, Qt.KeepAspectRatio, Qt.SmoothTransformation))
             hbox.addWidget(logo_pic)
         logo_col = QVBoxLayout()
         logo = QLabel("MARSIK FM")
@@ -348,7 +458,7 @@ class MainWindow(QMainWindow):
         # «динамический остров»: пилюля активной станции, клик — список
         # список вырастает из панели шапки (остров, как в Noctalia)
         self.menu = IslandMenu(central, header)
-        self.pill = QToolButton()
+        self.pill = Pill()
         self.pill.setObjectName("pill")
         self.pill.setText("Выберите станцию")
         self.pill.setToolTip("Станции (клик — список)")
@@ -356,6 +466,8 @@ class MainWindow(QMainWindow):
         self.pill.clicked.connect(self.menu.toggle)
         # меню пересобирается при открытии: пункт «Удалить» всегда актуален
         self.menu.aboutToShow.connect(self._rebuild_menu)
+        # перетаскивание станций: новый порядок сохраняется в stations.json
+        self.menu.reordered.connect(self._on_station_reordered)
         hbox.addWidget(self.pill, 0, Qt.AlignVCenter)
 
         hbox.addSpacing(10)
@@ -363,7 +475,7 @@ class MainWindow(QMainWindow):
         # пилюля скачанных треков: список из downloads/, клик — воспроизведение
         self.dl_menu = IslandMenu(central, header)
         self.dl_menu.aboutToShow.connect(self._scan_downloads)
-        self.dl_pill = QToolButton()
+        self.dl_pill = Pill()
         self.dl_pill.setObjectName("pill")
         self.dl_pill.setText("Скачанные")
         self.dl_menu.set_trigger(self.dl_pill)
@@ -376,7 +488,7 @@ class MainWindow(QMainWindow):
         # пилюля режима визуализатора
         self.viz_menu = IslandMenu(central, header)
         self.viz_menu.aboutToShow.connect(self._build_viz_menu)
-        self.viz_pill = QToolButton()
+        self.viz_pill = Pill()
         self.viz_pill.setObjectName("pill")
         self.viz_pill.setText("✦  %s" % _VIZ_NAMES[0])
         self.viz_pill.setToolTip("Режим визуализатора (клик — список)")
@@ -389,7 +501,7 @@ class MainWindow(QMainWindow):
         # пилюля фона: картинки из папки backgrounds/
         self.bg_menu = IslandMenu(central, header)
         self.bg_menu.aboutToShow.connect(self._build_bg_menu)
-        self.bg_pill = QToolButton()
+        self.bg_pill = Pill()
         self.bg_pill.setObjectName("pill")
         self.bg_pill.setText("Фон: без фона")
         self.bg_pill.setToolTip(
@@ -404,7 +516,7 @@ class MainWindow(QMainWindow):
         # пилюля темы: цвета интерфейса и визуализаторов (theme.py)
         self.theme_menu = IslandMenu(central, header)
         self.theme_menu.aboutToShow.connect(self._build_theme_menu)
-        self.theme_pill = QToolButton()
+        self.theme_pill = Pill(300)
         self.theme_pill.setObjectName("pill")
         self.theme_pill.setText("Тема: %s" % themes.current.name)
         self.theme_pill.setToolTip("Цветовая тема (клик — список)")
@@ -412,11 +524,27 @@ class MainWindow(QMainWindow):
         self.theme_pill.clicked.connect(self.theme_menu.toggle)
         hbox.addWidget(self.theme_pill, 0, Qt.AlignVCenter)
 
+        # ширина пилюль ограничена в Pill (длинный текст режется многоточием)
+
         hbox.addStretch(1)
         slogan = QLabel("Хорошая музыка делает день лучше ✦")
         slogan.setObjectName("slogan")
         self.slogan = slogan
         hbox.addWidget(slogan, 0, Qt.AlignVCenter)
+
+        # часы в правом углу шапки (шрифт как у виджета часов Noctalia)
+        hbox.addSpacing(14)
+        self.clock = QLabel()
+        self.clock.setObjectName("clock")
+        self.clock.setToolTip("Текущее время")
+        self.clock.setFont(QFont(CLOCK_FONT, 40))
+        hbox.addWidget(self.clock, 0, Qt.AlignVCenter)
+        self._tick_clock()
+        self._clock_timer = QTimer(self)
+        self._clock_timer.setInterval(1000)
+        self._clock_timer.timeout.connect(self._tick_clock)
+        self._clock_timer.start()
+
         root.addWidget(header)
 
         # --- центр: только визуализатор (место колонок освобождено) ---
@@ -428,8 +556,8 @@ class MainWindow(QMainWindow):
         viz_row = QHBoxLayout()
         viz_row.setSpacing(12)
         self.viz_stack = QStackedWidget()
-        self.viz_modes = [GlowingWave(), Nebulous(), Galaxy(),
-                          Oscilloscope(), Aurora()]
+        self.viz_modes = [GlowingWave(), Ring(), Bars(), Fireflies(),
+                          Liquid(), Galaxy(), Oscilloscope(), Nebulous()]
         for v in self.viz_modes:
             self.viz_stack.addWidget(v)
         self.wave = self.viz_modes[0]   # для совместимости (тап)
@@ -473,6 +601,14 @@ class MainWindow(QMainWindow):
         ph.addWidget(self.btn_play)
         ph.addWidget(btn_next)
         ph.addWidget(self.btn_stop)
+        self.btn_shuffle = QToolButton()
+        self.btn_shuffle.setText("Вперемешку")
+        self.btn_shuffle.setCheckable(True)
+        self.btn_shuffle.setToolTip(
+            "Скачанные треки: по порядку / вперемешку")
+        self.btn_shuffle.toggled.connect(self._on_shuffle_toggled)
+        self.btn_shuffle.hide()
+        ph.addWidget(self.btn_shuffle)
         ph.addStretch(1)
 
         # текущий трек (метаданные радио) — центр панели
@@ -502,48 +638,48 @@ class MainWindow(QMainWindow):
         self.slider.valueChanged.connect(self.engine.set_volume)
         ph.addWidget(self.slider)
 
-        # статус движка больше не выводится текстом: «Играет»/«Пауза» и так
-        # видно по кнопке и по движущейся полосе. Ошибки и позиция в очереди
-        # живут в нижней полосе прогресса.
+        # статус движка — под панелью плеера (маленькой строкой)
+        self.lbl_status = QLabel("")
+        self.lbl_status.setObjectName("status")
+        self.lbl_status.setAlignment(Qt.AlignRight)
+        root.addWidget(self.lbl_status)
 
-        # полоса прогресса трека: ползёт от 0 до конца, слева/справа время
-        prog_frame = QFrame()
-        prog_frame.setObjectName("progressBar")
-        progress_row = QHBoxLayout(prog_frame)
-        progress_row.setContentsMargins(14, 4, 14, 4)
-        progress_row.setSpacing(10)
+        # прогресс скачивания (скрыт, когда не качаем)
+        self.dl_progress = QProgressBar()
+        self.dl_progress.setObjectName("dlProgress")
+        self.dl_progress.setRange(0, 100)
+        self.dl_progress.setTextVisible(True)
+        self.dl_progress.setFormat("%p%")
+        self.dl_progress.setFixedHeight(10)
+        self.dl_progress.hide()
+        root.addWidget(self.dl_progress)
+
+        # прогресс воспроизведения локального трека (скрыт для радио)
+        self.seek_row = QWidget()
+        sh = QHBoxLayout(self.seek_row)
+        sh.setContentsMargins(6, 0, 6, 0)
+        sh.setSpacing(10)
         self.lbl_pos = QLabel("0:00")
-        self.lbl_pos.setObjectName("timepos")
-        self.lbl_pos.setMinimumWidth(46)
-        self.lbl_pos.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.lbl_dur = QLabel("—:—")
-        self.lbl_dur.setObjectName("timepos")
-        self.lbl_dur.setMinimumWidth(46)
-        self.lbl_dur.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        # позиция в очереди («3 / 6») — только когда играет локальная музыка
-        self.lbl_queue = QLabel("")
-        self.lbl_queue.setObjectName("queuepos")
-        self.lbl_queue.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.lbl_queue.hide()
-        self.progress = QSlider(Qt.Horizontal)
-        self.progress.setObjectName("progress")
-        self.progress.setRange(0, 1000)     # промилле: плавно и без float
-        self.progress.setValue(0)
-        self.progress.setEnabled(False)
-        self.progress.setToolTip(
-            "Перемотка трека (для радио недоступна — поток без длительности)")
-        self.progress.sliderMoved.connect(self._on_seek_preview)
-        self.progress.sliderReleased.connect(self._on_seek_commit)
-        progress_row.addWidget(self.lbl_pos)
-        progress_row.addWidget(self.progress, 1)
-        progress_row.addWidget(self.lbl_dur)
-        progress_row.addWidget(self.lbl_queue)
-        root.addWidget(prog_frame)
-        self._seek_dragging = False
-        self._dur = 0.0
-        self._downloading = False   # идёт скачивание: полоса показывает его
-        self._dl_pct = 0
-
+        self.lbl_pos.setObjectName("seekTime")
+        self.lbl_dur = QLabel("0:00")
+        self.lbl_dur.setObjectName("seekTime")
+        self.lbl_pos.setMinimumWidth(64)
+        self.seek = _SeekSlider()
+        self.seek.setToolTip("Перемотка")
+        self.seek.seekRequested.connect(self._on_seek)
+        # бегущая полоска, пока трек/станция загружается
+        self.busy = QProgressBar()
+        self.busy.setObjectName("busy")
+        self.busy.setRange(0, 0)
+        self.busy.setTextVisible(False)
+        self.busy.setFixedHeight(6)
+        self.busy.hide()
+        sh.addWidget(self.lbl_pos)
+        sh.addWidget(self.seek, 1)
+        sh.addWidget(self.busy, 1)
+        sh.addWidget(self.lbl_dur)
+        self.seek_row.hide()
+        root.addWidget(self.seek_row)
         root.addWidget(player)
 
         self.setCentralWidget(central)
@@ -655,36 +791,37 @@ class MainWindow(QMainWindow):
     def _apply_theme(self):
         """Перекрашивает интерфейс; визуализаторы читают тему сами."""
         self.setStyleSheet(build_style(themes.current))
-        # подпись под логотипом не должна сжиматься и резаться на середине
-        # слова: ширину считаем после стилей, когда шрифт уже применён
-        self.tagline.setMinimumWidth(
-            self.tagline.fontMetrics().horizontalAdvance(
-                self.tagline.text()) + 4)
         self.btn_stop.setIcon(self._icon(QStyle.SP_MediaStop))
         self.btn_prev.setIcon(self._icon(QStyle.SP_MediaSkipBackward))
         self.btn_next.setIcon(self._icon(QStyle.SP_MediaSkipForward))
         self.vol_icon.setPixmap(
             self._icon(QStyle.SP_MediaVolume).pixmap(18, 18))
         self.theme_pill.setText("Тема: %s" % themes.current.name)
-        # время трека лежит поверх фоновой картинки — даём подложку
-        time_css = (
-            "font-size: 12px; color: %s; padding: 1px 6px;"
-            " border-radius: 7px; background: %s;"
-            % (hexs(themes.current.muted), rgba(themes.current.surface, 190)))
-        self.lbl_pos.setStyleSheet(time_css)
-        self.lbl_dur.setStyleSheet(time_css)
         self.centralWidget().update()
         self._on_state(self.engine.state)   # цвет статуса
         for menu in (self.menu, self.dl_menu, self.viz_menu,
                      self.bg_menu, self.theme_menu):
             menu.update()
 
+    def _tick_clock(self):
+        """Обновляет часы в шапке (раз в секунду, меняется раз в минуту)."""
+        self.clock.setText(QTime.currentTime().toString(CLOCK_FORMAT))
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         # на узком окне прячем слоган и подпись, чтобы пилюлям хватало места
         w = event.size().width()
-        self.slogan.setVisible(w >= 1500)
-        self.tagline.setVisible(w >= 1250)
+        base = getattr(self, "_hdr_base", None)
+        if base is None:
+            return
+        tag_w = self.tagline.sizeHint().width()
+        slog_w = self.slogan.sizeHint().width()
+        want_tag = w >= base + tag_w + 24
+        want_slog = w >= base + tag_w + slog_w + 48
+        if self.tagline.isVisible() != want_tag:
+            self.tagline.setVisible(want_tag)
+        if self.slogan.isVisible() != want_slog:
+            self.slogan.setVisible(want_slog)
 
     # ---------- список станций (в меню пилюли) ----------
 
@@ -703,6 +840,8 @@ class MainWindow(QMainWindow):
     def _rebuild_menu(self):
         """Пересобирает меню: станции + разделитель + добавить/удалить."""
         self.menu.clear()
+        # первые строки (станции) можно таскать мышью — остальные служебные
+        self.menu.drag_rows = len(self.stations)
         for st in self.stations:
             act = self.menu.addAction(
                 "%s — %s" % (st["name"], st["description"] or "Radio"))
@@ -723,6 +862,16 @@ class MainWindow(QMainWindow):
         else:
             act_del = self.menu.addAction("✕  Удалить станцию")
             act_del.setEnabled(False)
+
+    def _on_station_reordered(self, src, dst):
+        """Строку перетащили в меню: dst — индекс, куда вставить."""
+        if not (0 <= src < len(self.stations)) or src == dst:
+            return
+        st = self.stations.pop(src)
+        self.stations.insert(dst - 1 if dst > src else dst, st)
+        save_stations(self.stations)
+        self._rebuild_menu()
+        self.menu.refresh()
 
     def _selected_station(self):
         """Станция, показанная в пилюле (по игре или по QSettings)."""
@@ -814,6 +963,8 @@ class MainWindow(QMainWindow):
         if bg is None:
             legacy = self.settings.value("bg_image", True)
             bg = _BG_LEGACY if legacy in (True, "true") else ""
+        self.btn_shuffle.setChecked(
+            self.settings.value("shuffle", False) in (True, "true"))
         saved = self.settings.value("theme", "")
         if saved in themes.themes:
             themes.set(saved)
@@ -825,9 +976,6 @@ class MainWindow(QMainWindow):
         except (TypeError, ValueError):
             viz = 0
         self._set_viz(viz if 0 <= viz < len(_VIZ_NAMES) else 0)
-        # порядок очереди для «Скачанных» — запоминаем между запусками
-        self._shuffle = self.settings.value("shuffle", False) in (True, "true")
-        self.engine.set_shuffle(self._shuffle)
         for st in self.stations:
             if st.get("id") == station_id:
                 # пилюля показывает прошлую станцию без автозапуска
@@ -839,9 +987,7 @@ class MainWindow(QMainWindow):
     def _play_station(self, st):
         self._playing_id = st.get("id")
         self._local = False
-        self._queue = []
-        self._queue_total = 0
-        self._reset_progress_ui()
+        self._set_local_ui(False)
         # пилюля-остров показывает активную станцию
         self.pill.setText("♪  %s" % st.get("name", ""))
         self.engine.play(st["url"])
@@ -854,12 +1000,10 @@ class MainWindow(QMainWindow):
         self._play_station(st)
 
     def _on_prev_next(self, step):
-        # в очереди локальных файлов ←/→ листают треки, а не станции
-        if self._local and self.engine.has_queue:
-            if step > 0:
-                self.engine.playlist_next()
-            else:
-                self.engine.playlist_prev()
+        if self._local and self.queue.items:
+            path = self.queue.next() if step > 0 else self.queue.prev()
+            if path:
+                self._play_queue_item(path)
             return
         if not self.stations:
             return
@@ -899,22 +1043,11 @@ class MainWindow(QMainWindow):
     # ---------- реакция на движок ----------
 
     def _on_state(self, state):
-        self._paint_status(_status_color(state))
+        text, color = _status_for(state)
         if state == ERROR:
-            self.lbl_pos.setText("Ошибка")
-            self.lbl_pos.setToolTip(
-                self._last_error or "воспроизведение не удалось")
-        elif state == CONNECTING:
-            self.lbl_pos.setText("Подключение…")
-            self.lbl_pos.setToolTip("")
-        elif state in (STOPPED, PAUSED):
-            self.lbl_pos.setToolTip("")
-            self._reset_progress_ui()
-        # PLAYING: полосу заполняет _on_position, здесь её не трогаем
-        if state == PLAYING and self._local:
-            self._update_queue_label()
-        elif not self._local:
-            self.lbl_queue.hide()
+            text = "Ошибка: " + (self._last_error or "воспроизведение не удалось")
+        self.lbl_status.setText(text)
+        self.lbl_status.setStyleSheet("color: %s; font-size: 13px;" % color)
 
         if state == PLAYING:
             icon = QStyle.SP_MediaPause
@@ -934,23 +1067,11 @@ class MainWindow(QMainWindow):
         else:
             self.tap.stop()
         self._update_save_state()
-
-    def _paint_status(self, color):
-        """Цвет индикации в нижней полосе (вместо отдельной строки статуса)."""
-        th = themes.current
-        css = (
-            "font-size: 12px; color: %s; padding: 1px 6px;"
-            " border-radius: 7px; background: %s;"
-            % (hexs(color), rgba(th.surface, 190)))
-        self.lbl_pos.setStyleSheet(css)
+        self._sync_seek_row()
 
     def _on_track(self, title):
         self._track = (title or "").strip()
-        self.lbl_track.setText(_elide(self._track, self.lbl_track, 520))
-        self.lbl_track.setToolTip(self._track)
-        # в очереди пилюля следит за текущим треком, а не за первым
-        if self._local and self._track:
-            self._set_pill_track(self._track)
+        self.lbl_track.setText(self._track)
         # плавное появление нового трека (fade-in 220 мс)
         if title:
             eff = QGraphicsOpacityEffect(self.lbl_track)
@@ -966,9 +1087,9 @@ class MainWindow(QMainWindow):
     def _on_error(self, message):
         self._last_error = message
         if self.engine.state == ERROR:
-            self.lbl_pos.setText("Ошибка")
-            self.lbl_pos.setToolTip(message)
-            self._paint_status(_status_color(ERROR))
+            self.lbl_status.setText("Ошибка: " + message)
+            self.lbl_status.setStyleSheet(
+                "color: %s; font-size: 13px;" % _status_for(ERROR)[1])
 
     # ---------- скачивание треков (yt-dlp) ----------
 
@@ -1007,26 +1128,11 @@ class MainWindow(QMainWindow):
         ]
         self._dl_buf = ""
         self._dl_proc.start(args[0], args[1:])
-        self._dl_begin()
-        # если yt-dlp не пришлёт ни одного процента (например, качает
-        # m3u8-сегменты без общего размера), полоса всё равно должна жить:
-        # тянем её сами, пока не придёт настоящий процент
-        self._dl_tick = 0
-        self._dl_timer.start(400)
+        self.dl_progress.setValue(0)
+        self.dl_progress.setFormat("%p%")
+        self.dl_progress.show()
         self.btn_save.setText("Отмена")
         self.btn_save.setEnabled(True)
-
-    def _dl_tick_progress(self):
-        """Запасной ход полосы, пока нет реальных процентов от yt-dlp.
-
-        Доползает до 90% и замирает: врать про 100% нельзя, а «ничего не
-        происходит» выглядит как зависшее приложение.
-        """
-        if not self._downloading or self._dl_had_pct or self._dl_already:
-            return
-        self._dl_tick = min(90, self._dl_tick + 1)
-        self.progress.setValue(self._dl_tick * 10)
-        self.lbl_dur.setText("%d%%" % self._dl_tick)
 
     def _on_dl_output(self):
         """Читаем вывод yt-dlp и обновляем полосу процентами.
@@ -1039,31 +1145,21 @@ class MainWindow(QMainWindow):
         text = self._dl_buf + data
         *lines, self._dl_buf = text.split("\n")
         for line in lines:
-            # файл уже лежал в «Музыке»: yt-dlp его не качает, процентов нет
-            if "has already been downloaded" in line:
-                self._dl_already = True
-                self.lbl_pos.setText("Уже в «Музыке»")
-                self.lbl_dur.setText("100%")
-                self.progress.setValue(1000)
-                continue
             m = _DL_PCT_RE.search(line)
             if not m:
                 continue
-            self._dl_set_pct(float(m.group(1)))
-            eta = _DL_ETA_RE.search(line)
-            if eta and self._dl_pct < 100:
-                self.lbl_pos.setText("Скачивание · %s" % eta.group(1))
+            pct = float(m.group(1))
+            self.dl_progress.setValue(int(pct))
+            self.dl_progress.setFormat("%.0f%%" % pct)
 
     def _on_dl_finished(self, code, status):
         proc = self._dl_proc
         self._dl_proc = None
         self._dl_buf = ""
+        self.dl_progress.hide()
+        self.dl_progress.setFormat("%p%")
         proc.deleteLater()
-        self._dl_timer.stop()
-        self._dl_end()
-        if code == 0 and self._dl_already:
-            self._flash_pill("✓ Уже в «Музыке»", "#2a9d6a")
-        elif code == 0:
+        if code == 0:
             self._flash_pill("✓ Сохранено!", "#2a9d6a")
         else:
             self._flash_pill("Ошибка скачивания", "#d24a2a")
@@ -1102,176 +1198,110 @@ class MainWindow(QMainWindow):
             "Скачанные (%d)" % n if n else "Скачанные")
 
     def _scan_downloads(self):
-        """Меню «Скачанные»: режим очереди + файлы из «Музыки».
-
-        Клик по файлу — играет вся папка, начиная с него, дальше mpv сам
-        переходит к следующему. Первые два пункта — порядок воспроизведения.
-        """
         self.dl_menu.clear()
+        self._dl_actions = {}
         files = self._downloads_list()
-        act = self.dl_menu.addAction(
-            "По порядку" if not self._shuffle else "Вперемешку")
-        act.setCheckable(True)
-        act.setChecked(self._shuffle)
-        act.setToolTip("Как играть очередь: по порядку или вперемешку")
-        act.triggered.connect(lambda c=False: self._toggle_shuffle())
-        self.dl_menu.addSeparator()
         if not files:
             act = self.dl_menu.addAction("Пока ничего не скачано")
             act.setEnabled(False)
             return
+        a_all = self.dl_menu.addAction("Играть все по порядку")
+        a_all.triggered.connect(lambda c=False: self._start_queue(None, False))
+        a_rnd = self.dl_menu.addAction("Играть вперемешку")
+        a_rnd.triggered.connect(lambda c=False: self._start_queue(None, True))
+        self.dl_menu.addSeparator()
+        paths = []
         for name in files:
             path = os.path.join(DL_DIR, name)
-            secs = track_duration(path)
-            label = os.path.splitext(name)[0]
-            if secs:
-                label = "%s   ·   %s" % (label, fmt_time(secs))
-            act = self.dl_menu.addAction(label)
-            act.setToolTip(name)
+            paths.append(path)
+            act = self.dl_menu.addAction(os.path.splitext(name)[0])
+            dur = self.durations.get(path)
+            act.setData(fmt_time(dur) if dur else "")   # "" резервирует колонку
             act.triggered.connect(
-                lambda c=False, p=path: self._play_local(p))
+                lambda c=False, p=path: self._start_queue(p))
+            self._dl_actions[path] = act
+        self.durations.request(paths)       # недостающие — в фоне
 
-    def _toggle_shuffle(self):
-        self._shuffle = not self._shuffle
-        self.settings.setValue("shuffle", self._shuffle)
-        self.engine.set_shuffle(self._shuffle)
-        self._flash_pill(
-            "Вперемешку" if self._shuffle else "По порядку",
-            hexs(themes.current.tertiary))
-        self._update_queue_label()
+    def _on_duration_ready(self, path, dur):
+        act = self._dl_actions.get(path)
+        if act is not None and dur > 0:
+            act.setData(fmt_time(dur))
+            self.dl_menu.update()
 
-    def _play_local(self, path):
-        """Играет папку «Музыка» как плейлист, начиная с выбранного файла."""
-        files = self._downloads_list()
+    def _start_queue(self, path=None, shuffle=None):
+        """Запуск очереди скачанных: с выбранного трека или с начала."""
+        files = [os.path.join(DL_DIR, n) for n in self._downloads_list()]
         if not files:
             return
-        paths = [os.path.join(DL_DIR, n) for n in files]
-        if path in paths and not self._shuffle:
-            # по порядку: очередь стартует с выбранного, затем остальные по кругу
-            i = paths.index(path)
-            paths = paths[i:] + paths[:i]
-        elif path in paths:
-            # вперемешку: выбранный — первым, остальные тасует mpv
-            paths.remove(path)
-            paths.insert(0, path)
-        self._queue = paths
-        self._local = True
+        if shuffle is not None:
+            self.btn_shuffle.setChecked(shuffle)
+        self.queue.shuffle = self.btn_shuffle.isChecked()
+        if path is None:
+            path = random.choice(files) if self.queue.shuffle else files[0]
+        self.queue.start(files, path)
+        self._play_queue_item(path)
+
+    def _play_queue_item(self, path):
+        # локальный трек: показываем имя файла в пилюле станции
         self._playing_id = None
-        self._set_pill_track(path)
-        self.engine.play_playlist(paths, shuffle=self._shuffle)
+        self._local = True
+        self._set_local_ui(True)
+        self.pill.setText("♪  %s" % os.path.splitext(
+            os.path.basename(path))[0])
+        self.engine.play(path)
 
-    def _set_pill_track(self, path):
-        """Пилюля станции показывает текущий файл (с обрезкой по ширине)."""
-        name = os.path.splitext(os.path.basename(path))[0]
-        self.pill.setText("♪  %s" % _elide(name, self.pill, 230))
-        self.pill.setToolTip(name)
+    def _play_local(self, path):          # совместимость со старым кодом
+        self._start_queue(path)
 
-    def _on_seekable(self, on):
-        """Перемотка доступна только для файлов (у потока нет длительности)."""
-        self.progress.setEnabled(on and self._dur > 0)
+    def _sync_seek_row(self):
+        """Строка прогресса: загрузка (бегущая полоска) или позиция трека."""
+        connecting = self.engine.state == CONNECTING
+        have_dur = self._local and self._cur_dur > 0 and not connecting
+        self.busy.setVisible(connecting)
+        self.seek.setVisible(have_dur)
+        self.lbl_dur.setVisible(have_dur)
+        self.lbl_pos.setVisible(connecting or have_dur)
+        if connecting:
+            self.lbl_pos.setText("Загрузка…")
+        self.seek_row.setVisible(connecting or have_dur)
+
+    def _set_local_ui(self, on):
+        self.btn_shuffle.setVisible(on)
+        self.btn_prev.setToolTip(
+            "Предыдущий трек" if on else "Предыдущая станция")
+        self.btn_next.setToolTip(
+            "Следующий трек" if on else "Следующая станция")
+        if not on:
+            self._cur_dur = 0.0
+            self._sync_seek_row()
+
+    def _on_shuffle_toggled(self, on):
+        self.queue.set_shuffle(on)
+        self.settings.setValue("shuffle", bool(on))
 
     def _on_position(self, pos, dur):
-        """Позиция и длительность от mpv → полоса и два счётчика времени.
-
-        Для радио прогресс не показываем: у потока нет длительности, а mpv
-        отдаёт duration буферизованного куска (десятки секунд) — полоса по
-        нему врала бы. Живой прогресс — только для локальных файлов.
-        """
-        if not self._local:
-            self._reset_progress_ui()
-            return
-        if self._downloading:
-            return          # полоса занята скачиванием
-        self._dur = dur or 0.0
-        if self._dur > 0:
-            self.lbl_dur.setText(fmt_time(self._dur))
+        if not self._local or dur <= 0:
+            self._cur_dur = 0.0
         else:
-            self.lbl_dur.setText("—:—")
-        if not self._seek_dragging:
+            self._cur_dur = dur
             self.lbl_pos.setText(fmt_time(pos))
-            if self._dur > 0:
-                self.progress.setValue(
-                    int(1000 * min(1.0, max(0.0, pos) / self._dur)))
-            else:
-                self.progress.setValue(0)
-        self.progress.setEnabled(bool(self._dur > 0 and self.engine.seekable))
+            self.lbl_dur.setText(fmt_time(dur))
+            if not self.seek.dragging:
+                self.seek.setValue(
+                    int(min(1.0, pos / dur) * self.seek.maximum()))
+        self._sync_seek_row()
 
-    def _on_seek_preview(self, value):
-        """Тянем ползунок: показываем время, но не трогаем воспроизведение."""
-        self._seek_dragging = True
-        if self._dur > 0:
-            self.lbl_pos.setText(fmt_time(self._dur * value / 1000.0))
+    def _on_seek(self, frac):
+        if self._cur_dur > 0:
+            self.engine.seek(frac * self._cur_dur)
 
-    def _on_seek_commit(self):
-        """Отпустили ползунок — перематываем."""
-        self._seek_dragging = False
-        if self._dur > 0:
-            self.engine.seek(self._dur * self.progress.value() / 1000.0)
-
-    def _reset_progress_ui(self):
-        if self._downloading:
-            return          # полоса занята скачиванием — не трогаем
-        self._dur = 0.0
-        self.progress.setValue(0)
-        self.progress.setEnabled(False)
-        self.lbl_pos.setText("0:00")
-        self.lbl_dur.setText("—:—")
-
-    # ---------- полоса как индикатор скачивания ----------
-
-    def _dl_begin(self):
-        """Скачивание стартовало: полоса переключается в режим процентов."""
-        self._downloading = True
-        self._dl_pct = 0
-        self._dl_had_pct = False    # были ли реальные проценты
-        self._dl_already = False    # файл уже лежал в «Музыке»
-        self._seek_dragging = False
-        self.progress.setEnabled(False)     # перематывать во время загрузки нечего
-        self.progress.setToolTip("Скачивание трека…")
-        self.progress.setValue(0)
-        self.lbl_pos.setText("Скачивание")
-        self.lbl_dur.setText("0%")
-
-    def _dl_set_pct(self, pct):
-        pct = max(0, min(100, int(round(pct))))
-        self._dl_pct = pct
-        self._dl_had_pct = True
-        self.progress.setValue(pct * 10)    # шкала полосы — промилле
-        self.lbl_dur.setText("%d%%" % pct)
-        if pct >= 100:
-            # после 100% yt-dlp ещё конвертирует в mp3 — это не мгновенно
-            self.lbl_pos.setText("Обработка…")
-            self.progress.setToolTip("Скачано, идёт конвертация в mp3…")
-
-    def _dl_end(self):
-        """Скачивание закончилось: возвращаем полосу к воспроизведению."""
-        self._downloading = False
-        self.progress.setToolTip(
-            "Перемотка трека (для радио недоступна — поток без длительности)")
-        self.lbl_pos.setText("0:00")
-        self.lbl_dur.setText("—:—")
-        self.progress.setValue(0)
-        self.progress.setEnabled(False)
-        self._dur = 0.0
-
-    def _on_queue_pos(self, pos, count):
-        """Позиция в очереди от mpv → подпись «3 / 6» в статусе."""
-        self._queue_pos = pos + 1
-        self._queue_total = count
-        self._update_queue_label()
-
-    def _update_queue_label(self):
-        """Позиция в очереди — в нижней полосе, рядом с длительностью."""
-        if not self._local or not self._queue_total:
-            self.lbl_queue.hide()
-            return
-        mode = "⇄" if self._shuffle else "→"
-        self.lbl_queue.setText("%d / %d  %s" % (
-            self._queue_pos, self._queue_total, mode))
-        self.lbl_queue.setToolTip(
-            "Трек %d из %d, %s" % (self._queue_pos, self._queue_total,
-                                   "вперемешку" if self._shuffle else "по порядку"))
-        self.lbl_queue.show()
+    def _on_file_ended(self):
+        """Трек доигран: следующий из очереди (по порядку или случайный)."""
+        nxt = self.queue.next() if (self._local and self.queue.items) else None
+        if nxt:
+            self._play_queue_item(nxt)
+        else:
+            self.engine.stop()
 
     # ---------- закрытие ----------
 

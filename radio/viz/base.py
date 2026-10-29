@@ -30,7 +30,15 @@ class Visualizer(QWidget):
         self._sig = 0.0            # последний реальный уровень
         self._sig_time = 0.0        # время последнего реального уровня
         self._baseline = 0.14      # медленная база уровня (AGC)
-        self._bands = [0.0] * 8    # полосы спектра (низ → верх)
+        self._bands = [0.0] * 8    # 8 грубых полос (для старых режимов)
+        self._fine = [0.0] * 32    # 32 полосы спектра (низ → верх)
+        self._smooth = [0.0] * 32  # они же, нормированные и сглаженные
+        self._ref = 0.5            # AGC по спектру: медленный максимум
+        self._bandref = [0.3] * 32 # то же, но для каждой полосы отдельно
+        self._bass = 0.0           # сглаженная энергия баса 0..1
+        self._bass_avg = 0.15      # медленная база баса (для детектора)
+        self._beat = 0.0           # импульс удара 0..1 (затухает)
+        self._last_beat = 0.0
         self._wave = []            # срез формы волны -1..1 (для scope)
         self._bg = None            # фоновая картинка (или None)
         self._win_bg = False       # оконный фон под всеми режимами
@@ -54,9 +62,18 @@ class Visualizer(QWidget):
         self._sig_time = time.monotonic()
 
     def set_bands(self, bands):
-        """8 полос спектра 0..1 (низ → верх)."""
-        if bands:
-            self._bands = list(bands)
+        """Полосы спектра 0..1 (низ → верх); обычно 32, сворачиваем в 8."""
+        if not bands:
+            return
+        bands = list(bands)
+        self._fine = bands
+        n = len(bands)
+        if n >= 8 and n % 8 == 0:
+            k = n // 8
+            self._bands = [sum(bands[i * k:(i + 1) * k]) / k
+                           for i in range(8)]
+        else:
+            self._bands = (bands + [0.0] * 8)[:8]
 
     def set_wave(self, wave):
         """Срез сырой формы волны -1..1 (для осциллографа)."""
@@ -102,6 +119,9 @@ class Visualizer(QWidget):
     # ---------- анимация (общая) ----------
 
     def _tick(self):
+        # скрытые режимы (неактивная страница стека) ничего не считают
+        if not self.isVisible():
+            return
         now = self._clock.elapsed() / 1000.0
         dt = min(0.1, now - self._last) if self._last else 0.016
         self._last = now
@@ -123,6 +143,8 @@ class Visualizer(QWidget):
         self._env += (target - self._env) * min(1.0, dt * rate)
         self.envChanged.emit(self._env)
 
+        self._analyze(dt, now, live)
+
         speed = 0.6 + 1.2 * self._env
         if not self._active:
             speed *= 0.5
@@ -130,6 +152,35 @@ class Visualizer(QWidget):
 
         self._update(dt, now)
         self.update()
+
+    def _analyze(self, dt, now, live):
+        """Спектр: нормировка, сглаживание и детектор ударов по басу."""
+        n = len(self._smooth)
+        fine = self._fine if live else [0.0] * n
+        if len(fine) != n:
+            fine = (list(fine) + [0.0] * n)[:n]
+        # AGC: медленный максимум — картинка полная на любой громкости
+        self._ref = max(0.35, self._ref - dt * 0.05, max(fine))
+        for i in range(n):
+            # у каждой полосы свой медленный максимум: тихий верх не тонет
+            # рядом с громким басом, но и шум пустых полос не раздувается
+            br = max(self._bandref[i] - dt * 0.06, fine[i])
+            self._bandref[i] = br
+            den = max(0.22, 0.4 * self._ref + 0.6 * br)
+            tgt = min(1.0, fine[i] / den)
+            cur = self._smooth[i]
+            rate = 28.0 if tgt > cur else 7.0       # атака быстрее спада
+            self._smooth[i] = cur + (tgt - cur) * min(1.0, dt * rate)
+
+        # бас = нижние 4 бина (≈ 0–350 Гц)
+        bass = sum(fine[:4]) / 4.0
+        self._bass += (bass - self._bass) * min(1.0, dt * 18.0)
+        self._bass_avg += (bass - self._bass_avg) * min(1.0, dt * 1.5)
+        if (live and bass > self._bass_avg * 1.30 + 0.05
+                and now - self._last_beat > 0.15):
+            self._beat = 1.0
+            self._last_beat = now
+        self._beat = max(0.0, self._beat - dt * 4.5)
 
     def _update(self, dt, now):
         """Хук для наследников со своей логикой анимации."""

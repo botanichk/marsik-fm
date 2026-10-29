@@ -32,6 +32,7 @@ _CLOSE_MS = 160
 
 class IslandMenu(QWidget):
     aboutToShow = Signal()
+    reordered = Signal(int, int)   # перетащили строку: src, куда вставить
 
     def __init__(self, parent, anchor, trigger=None, center="trigger"):
         """parent — холст окна; anchor — панель, к которой клеимся;
@@ -50,6 +51,12 @@ class IslandMenu(QWidget):
         self._geo = (0, 0, 0)      # x, y, w
         self._p = 0.0              # прогресс раскрытия 0..1
         self._open = False
+        # перетаскивание: drag_rows — сколько первых строк можно двигать
+        self.drag_rows = 0
+        self._drag_from = -1
+        self._drag_to = -1
+        self._press = None
+        self._dragging = False
         self.setMouseTracking(True)
         self.hide()
 
@@ -82,10 +89,6 @@ class IslandMenu(QWidget):
         act.setSeparator(True)
         self._actions.append(act)
         return act
-
-    def actions(self):
-        """Текущие пункты (как у QMenu) — для тестов и инспекции."""
-        return list(self._actions)
 
     # ---------- открытие / закрытие ----------
 
@@ -139,6 +142,15 @@ class IslandMenu(QWidget):
         if not self._open:
             self.hide()
 
+    def refresh(self):
+        """Пересчитать геометрию на лету (пункты поменялись, меню открыто)."""
+        if not self._open:
+            return
+        self._measure()
+        x, y, w = self._geo
+        self.setGeometry(x, y, w, max(1, int(round(self._full_h * self._p))))
+        self.update()
+
     # ---------- геометрия ----------
 
     def _measure(self):
@@ -159,7 +171,11 @@ class IslandMenu(QWidget):
         canvas = self.parentWidget()
         min_body = (self._trigger.width() + 30) if self._trigger else 200
         check_w = 26 if any(a.isCheckable() for a in self._actions) else 0
-        body_w = widest + check_w + 2 * (_PAD_X + _TEXT_PAD)
+        # колонка времени справа (данные действия — строка «3:45»)
+        time_w = (fm.horizontalAdvance("0:00:00") + 14
+                  if any(isinstance(a.data(), str) for a in self._actions)
+                  else 0)
+        body_w = widest + check_w + time_w + 2 * (_PAD_X + _TEXT_PAD)
         body_w = max(min_body, body_w)
         body_w = min(body_w, _MAX_W, canvas.width() - 2 * _FLARE - 24)
         w = int(body_w) + 2 * _FLARE
@@ -244,16 +260,37 @@ class IslandMenu(QWidget):
             else:
                 p.setPen(text_c if on else text_off)
             reserve = 26 if a.isCheckable() else 0
+            tdata = a.data() if isinstance(a.data(), str) else None
+            if tdata is not None:
+                reserve += fm.horizontalAdvance("0:00:00") + 14
             text = fm.elidedText(
                 a.text(), Qt.ElideRight,
                 int(rect.width() - 2 * _TEXT_PAD - reserve))
             p.drawText(rect.adjusted(_TEXT_PAD, 0, -_TEXT_PAD, 0),
                        Qt.AlignVCenter | Qt.AlignLeft, text)
+            if tdata:
+                tc = (th.q(th.on_primary, 220) if i == self._hover and on
+                      else th.q(th.muted))
+                p.setPen(tc)
+                p.drawText(rect.adjusted(0, 0, -_TEXT_PAD, 0),
+                           Qt.AlignVCenter | Qt.AlignRight, tdata)
             if a.isCheckable() and a.isChecked():
                 if i != self._hover:
                     p.setPen(accent)
                 p.drawText(rect.adjusted(0, 0, -_TEXT_PAD, 0),
                            Qt.AlignVCenter | Qt.AlignRight, "✓")
+
+        # куда встанет перетаскиваемая строка
+        if self._dragging and 0 <= self._drag_to <= len(self._rows):
+            if self._drag_to < len(self._rows):
+                line_y = self._rows[self._drag_to][1] - self._scroll
+            elif self._rows:
+                a, ry, rh = self._rows[-1]
+                line_y = ry + rh - self._scroll
+            else:
+                line_y = 0
+            p.setPen(QPen(accent, 2.0))
+            p.drawLine(int(bx0 + 4), int(line_y), int(bx1 - 4), int(line_y))
 
     # ---------- мышь ----------
 
@@ -266,8 +303,43 @@ class IslandMenu(QWidget):
                 return i
         return -1
 
+    def _drop_index(self, pos):
+        """Куда вставить перетаскиваемую строку (индекс в исходном списке)."""
+        y = pos.y() + self._scroll
+        index = min(self.drag_rows, len(self._rows))
+        for i in range(index):
+            if y < self._rows[i][1] + self._rows[i][2] / 2.0:
+                return i
+        return index
+
+    def mousePressEvent(self, e):
+        self._press = e.position().toPoint()
+        i = self._row_at(self._press)
+        a = self._rows[i][0] if i >= 0 else None
+        movable = (a is not None and i < self.drag_rows
+                   and not a.isSeparator() and a.isEnabled())
+        self._drag_from = i if movable else -1
+        self._drag_to = -1
+
     def mouseMoveEvent(self, e):
-        i = self._row_at(e.position().toPoint())
+        pos = e.position().toPoint()
+        if self._drag_from >= 0 and e.buttons() & Qt.LeftButton:
+            if not self._dragging and self._press is not None \
+                    and (pos - self._press).manhattanLength() > 6:
+                self._dragging = True
+                self._hover = -1
+            if self._dragging:
+                self._drag_to = self._drop_index(pos)
+                # автопрокрутка у краёв: список может быть длиннее меню
+                over = self._content_h - self.height()
+                if over > 0:
+                    if pos.y() < 24:
+                        self._scroll = max(0, self._scroll - 8)
+                    elif pos.y() > self.height() - 24:
+                        self._scroll = min(over, self._scroll + 8)
+                self.update()
+                return
+        i = self._row_at(pos)
         if i != self._hover:
             self._hover = i
             self.update()
@@ -278,6 +350,14 @@ class IslandMenu(QWidget):
 
     def mouseReleaseEvent(self, e):
         if e.button() != Qt.LeftButton or not self._open:
+            return
+        if self._dragging:
+            src, dst = self._drag_from, self._drop_index(e.position().toPoint())
+            self._dragging = False
+            self._drag_from = self._drag_to = -1
+            self.update()
+            if src >= 0 and dst != src:
+                self.reordered.emit(src, dst)
             return
         i = self._row_at(e.position().toPoint())
         if i < 0:

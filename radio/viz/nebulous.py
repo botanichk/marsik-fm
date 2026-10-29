@@ -11,7 +11,7 @@
 """
 import math
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QColor, QPainter, QRadialGradient
 from PySide6.QtWidgets import QWidget
 
@@ -74,7 +74,7 @@ class Nebulous(Visualizer):
             g.setColorAt(1.0, QColor(*base, 0))
             p.setPen(Qt.NoPen)
             p.setBrush(g)
-            p.drawEllipse(bx, by, rad, rad)
+            p.drawEllipse(QPointF(bx, by), rad, rad)
 
         # мягкое центральное свечение, ярче от общей энергии
         halo = QRadialGradient(cx, cy, minwh * 0.6)

@@ -14,6 +14,7 @@ GstValueList не разбирается через get_value в этой сбо
 struct.unpack из appsink. Любая ошибка уводит тап в idle: радио не страдает.
 Watchdog раз в 5 секунд следит за сменой default sink.
 """
+import math
 import re
 import struct
 import subprocess
@@ -28,23 +29,26 @@ try:
 except Exception:
     Gst = None
 
-_BANDS = 64         # FFT-полос (затем сворачиваются в лог-бинов см. ниже)
-_OUT_BANDS = 8      # лог-бинов на выход: низ тонкий, верх широкий
+_BANDS = 256        # FFT-полос (≈86 Гц каждая), затем сворачиваются в бины
+_OUT_BANDS = 32     # бинов на выход: низ тонкий, верх широкий
 _WAVE_STEP = 6      # шаг сэмпления формы волны
 _WAVE_MAX = 256     # максимум точек в срезе волны
 _INTERVAL = 30000000  # 30 мс между спектрами (~33 Гц)
+_TILT_DB_OCT = 3.5   # подъём высоких частот, дБ на октаву (выше 200 Гц)
+_TILT_MAX_DB = 20.0  # потолок подъёма
 _EMIT_MS = 60       # дебаунс: раз в ~17 Гц отдаём наружу (не грузим GUI)
 # magnitude=(float){ -13.4, -18.6, ... } → числа через to_string()
 _MAG_RE = re.compile(r"magnitude=\(float\)\{([^}]*)\}")
 
 # лог-бины: границы по индексам FFT-полос (низ узкий, верх широкий)
 def _log_edges(total, out):
-    edges = [int(round(total ** (i / out))) for i in range(out + 1)]
+    # начинаем с 0, чтобы не терять бас (полоса 0 = 0–86 Гц, там бочка)
+    edges = [int(round(total ** (i / out))) - 1 for i in range(out + 1)]
     # гарантируем рост и непустые бины
     for i in range(1, len(edges)):
         if edges[i] <= edges[i - 1]:
             edges[i] = edges[i - 1] + 1
-    edges[-1] = min(total, edges[-1])
+    edges[-1] = total
     return edges
 
 _EDGES = _log_edges(_BANDS, _OUT_BANDS)
@@ -52,7 +56,7 @@ _EDGES = _log_edges(_BANDS, _OUT_BANDS)
 
 class AudioTap(QObject):
     level = Signal(float)        # громкость 0..1
-    bands = Signal(list)         # 8 полос спектра 0..1 (низ → верх)
+    bands = Signal(list)         # 32 полосы спектра 0..1 (низ → верх)
     wave = Signal(list)          # срез формы волны -1..1 (для scope)
     failed = Signal(str)         # диагностика; визуализаторы уходят в idle
 
@@ -115,7 +119,7 @@ class AudioTap(QObject):
         launch = (
             'pulsesrc device="{dev}" ! audioconvert ! '
             "audio/x-raw,format=F32LE,channels=1,rate=44100 ! "
-            "spectrum bands={bands} threshold=-80 post-messages=true "
+            "spectrum bands={bands} threshold=-100 post-messages=true "
             "message-magnitude=true interval={intv} ! "
             'appsink name=sink emit-signals=true max-buffers=2 drop=true '
             "sync=false"
@@ -195,8 +199,17 @@ class AudioTap(QObject):
             return
         if not db:
             return
-        # dB → 0..1: музыка лежит в ~-60..-20 dB, тишина ≈ -80
-        vals = [max(0.0, min(1.0, (v + 60.0) / 40.0)) for v in db]
+        # dB → 0..1: музыка лежит в ~-64..-24 dB (на узких полосах уровень
+        # ниже, чем на широких), тишина ≈ -80
+        # музыка спадает к высоким частотам: поднимаем верх на ~3.5 дБ/окт,
+        # иначе правые полосы визуализаторов почти не оживают
+        n = len(db)
+        vals = []
+        for k, v in enumerate(db):
+            f = (k + 0.5) * 22050.0 / n
+            tilt = min(_TILT_MAX_DB,
+                       _TILT_DB_OCT * math.log2(max(f, 200.0) / 200.0))
+            vals.append(max(0.0, min(1.0, (v + tilt + 64.0) / 40.0)))
         # сворачиваем линейный спектр в лог-бины (низ тонкий, верх широкий)
         out = []
         for i in range(_OUT_BANDS):

@@ -11,7 +11,7 @@
 """
 import math
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QColor, QPainter, QRadialGradient
 
 from ..theme import manager as _themes
@@ -81,7 +81,7 @@ class Galaxy(Visualizer):
         core.setColorAt(1.0, QColor(*c1, 0))
         p.setPen(Qt.NoPen)
         p.setBrush(core)
-        p.drawEllipse(cx, cy, R * 0.26, R * 0.26)
+        p.drawEllipse(QPointF(cx, cy), R * 0.26, R * 0.26)
 
         # звёзды по спиральным рукавам
         for radius, arm, band, hue in self._stars:
@@ -95,18 +95,18 @@ class Galaxy(Visualizer):
             y = cy + math.sin(ang) * r * 0.86   # лёгкий наклон диска
 
             base = _ramp(hue)
-            size = 1.0 + 2.2 * energy + 0.9 * (1.0 - radius)
-            alpha = int(70 + 180 * energy)
+            size = 1.4 + 3.0 * energy + 1.2 * (1.0 - radius)
+            alpha = int(120 + 135 * energy)
             p.setBrush(QColor(*base, alpha))
             p.setPen(Qt.NoPen)
-            p.drawEllipse(x, y, size, size)
+            p.drawEllipse(QPointF(x, y), size * 0.75, size * 0.75)
             # мягкое гало вокруг ярких звёзд (аддитивное свечение)
             if energy > 0.35:
                 halo = QRadialGradient(x, y, size * 3.2)
                 halo.setColorAt(0.0, QColor(*base, int(60 * energy)))
                 halo.setColorAt(1.0, QColor(*base, 0))
                 p.setBrush(halo)
-                p.drawEllipse(x, y, size * 3.2, size * 3.2)
+                p.drawEllipse(QPointF(x, y), size * 3.2, size * 3.2)
 
         # сверхновая на ударе — вспышка в центре
         if self._nova > 0.01:
@@ -117,4 +117,5 @@ class Galaxy(Visualizer):
             flash.setColorAt(0.3, QColor(*c1, int(a * 0.6)))
             flash.setColorAt(1.0, QColor(*c3, 0))
             p.setBrush(flash)
-            p.drawEllipse(cx, cy, R * 0.7 * self._nova, R * 0.7 * self._nova)
+            p.drawEllipse(QPointF(cx, cy), R * 0.7 * self._nova,
+                          R * 0.7 * self._nova)
