@@ -1,0 +1,14 @@
+{
+  "name": "Marsik FM",
+  "short_name": "Marsik FM",
+  "description": "Интернет-радио с моими станциями",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0d0f14",
+  "theme_color": "#0d0f14",
+  "icons": [
+    { "src": "../assets/icon.png", "sizes": "256x256", "type": "image/png" },
+    { "src": "../assets/emblem.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

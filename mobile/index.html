@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Marsik FM</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0d0f14">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; background: #0d0f14; color: #e7e9ee;
+    font: 16px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    padding: 0 0 calc(96px + env(safe-area-inset-bottom));
+  }
+  header {
+    position: sticky; top: 0; z-index: 2; display: flex; gap: 12px;
+    align-items: center; padding: 14px 16px;
+    background: #0d0f14ee; backdrop-filter: blur(8px);
+    border-bottom: 1px solid #1c2029;
+  }
+  header img { width: 40px; height: 40px; border-radius: 10px; }
+  header h1 { margin: 0; font-size: 18px; letter-spacing: .06em; }
+  header p { margin: 2px 0 0; font-size: 11px; color: #7f8798; letter-spacing: .12em; }
+  ul { list-style: none; margin: 0; padding: 8px 8px 0; }
+  li {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 14px; margin: 6px 0; border-radius: 14px;
+    background: #151922; border: 1px solid transparent;
+  }
+  li:active { background: #1b2130; }
+  li.on { border-color: #e8743b; background: #1d1a1c; }
+  li.dead { opacity: .55; }
+  li .txt { min-width: 0; flex: 1; }
+  li b { display: block; font-weight: 600; white-space: nowrap;
+         overflow: hidden; text-overflow: ellipsis; }
+  li small { display: block; color: #8b93a4; white-space: nowrap;
+             overflow: hidden; text-overflow: ellipsis; }
+  li .dot { width: 9px; height: 9px; border-radius: 50%; background: #2c3340; flex: none; }
+  li.on .dot { background: #e8743b; box-shadow: 0 0 12px #e8743b; }
+  footer {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 3;
+    display: flex; gap: 12px; align-items: center;
+    padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
+    background: #11141bee; backdrop-filter: blur(10px);
+    border-top: 1px solid #1c2029;
+  }
+  footer .txt { flex: 1; min-width: 0; }
+  footer b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  footer small { color: #8b93a4; }
+  button {
+    font: inherit; color: #e7e9ee; background: #232a38; border: 0;
+    border-radius: 12px; padding: 11px 16px; min-width: 96px;
+  }
+  button:active { background: #2e3648; }
+  #hint { margin: 10px 16px 0; color: #6e7688; font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <img src="../assets/icon.png" alt="">
+  <div>
+    <h1>MARSIK FM</h1>
+    <p>GOOD MUSIC · GOOD VIBES</p>
+  </div>
+</header>
+
+<ul id="list"></ul>
+<p id="hint">Станции берутся из stations.json репозитория.</p>
+
+<footer hidden>
+  <div class="txt">
+    <b id="now">—</b>
+    <small id="state">играет</small>
+  </div>
+  <button id="toggle">Пауза</button>
+  <button id="stop">Стоп</button>
+</footer>
+
+<audio id="audio" preload="none"></audio>
+
+<script>
+const LIST = document.getElementById('list');
+const HINT = document.getElementById('hint');
+const AUDIO = document.getElementById('audio');
+const FOOT = document.querySelector('footer');
+const NOW = document.getElementById('now');
+const STATE = document.getElementById('state');
+const TOGGLE = document.getElementById('toggle');
+const STOP = document.getElementById('stop');
+let current = null;          // пункт списка, который играет (или пытался)
+
+// на https-странице http-поток блокируется как mixed content — пробуем https
+function usable(url) {
+  if (location.protocol === 'https:' && url.startsWith('http://')) {
+    return url.replace('http://', 'https://');
+  }
+  return url;
+}
+
+function setState(text) { STATE.textContent = text; }
+
+function select(st, row) {
+  if (current) current.classList.remove('on');
+  current = row;
+  row.classList.add('on');
+  NOW.textContent = st.name;
+  FOOT.hidden = false;
+  setState("подключаюсь…");
+  if ('mediaSession' in navigator) {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: st.name,
+      artist: st.description || 'Marsik FM',
+      artwork: [{ src: '../assets/icon.png', sizes: '256x256', type: 'image/png' }],
+    });
+  }
+}
+
+function play(st, row) {
+  AUDIO.pause();
+  AUDIO.src = usable(st.url);
+  select(st, row);
+  const p = AUDIO.play();
+  if (p && p.catch) p.catch(() => {
+    row.classList.add('dead');
+    setState("не играет в браузере");
+  });
+  localStorage.setItem('station', st.id);
+}
+
+AUDIO.addEventListener('playing', () => { setState("играет"); TOGGLE.textContent = "Пауза"; });
+AUDIO.addEventListener('pause', () => { setState("пауза"); TOGGLE.textContent = "Играть"; });
+AUDIO.addEventListener('waiting', () => setState("буферизация…"));
+AUDIO.addEventListener('error', () => {
+  setState("не играет в браузере");
+  if (current) current.classList.add('dead');
+});
+
+TOGGLE.addEventListener('click', () => {
+  if (AUDIO.paused) AUDIO.play(); else AUDIO.pause();
+});
+STOP.addEventListener('click', () => {
+  AUDIO.pause();
+  AUDIO.removeAttribute('src');
+  AUDIO.load();
+  FOOT.hidden = true;
+  if (current) current.classList.remove('on');
+  current = null;
+});
+
+if ('mediaSession' in navigator) {
+  navigator.mediaSession.setActionHandler('pause', () => AUDIO.pause());
+  navigator.mediaSession.setActionHandler('play', () => AUDIO.play());
+  navigator.mediaSession.setActionHandler('stop', () => STOP.click());
+}
+
+fetch('../stations.json')
+  .then(r => r.json())
+  .then(stations => {
+    HINT.textContent = stations.length + " станций · нажми, чтобы слушать";
+    const last = localStorage.getItem('station');
+    for (const st of stations) {
+      const li = document.createElement('li');
+      li.innerHTML = '<span class="dot"></span><span class="txt"><b></b><small></small></span>';
+      li.querySelector('b').textContent = st.name;
+      li.querySelector('small').textContent = st.description || st.url;
+      li.addEventListener('click', () => play(st, li));
+      if (st.id === last) li.classList.add('on'), current = li;
+      LIST.append(li);
+    }
+  })
+  .catch(() => {
+    HINT.textContent = "Не удалось прочитать stations.json — открой страницу по ссылке с GitHub Pages.";
+  });
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+</script>
+</body>
+</html>
