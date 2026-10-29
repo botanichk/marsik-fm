@@ -70,5 +70,35 @@
     "name": "Radio Caprice — Delta Blues",
     "description": "",
     "url": "http://79.120.77.11:8002/deltablues"
+  },
+  {
+    "id": "outlaw_country_radio",
+    "name": "Outlaw Country Radio",
+    "description": "",
+    "url": "https://usa17.fastcast4u.com/proxy/kievradio?mp=/1"
+  },
+  {
+    "id": "xrds.fm_–_the_crossroads",
+    "name": "XRDS.fm – The Crossroads",
+    "description": "",
+    "url": "http://198.58.106.133:8321/stream"
+  },
+  {
+    "id": "pinguin_blues",
+    "name": "Pinguin Blues",
+    "description": "",
+    "url": "https://samcloud.spacial.com/api/listen?sid=93462&m=sc"
+  },
+  {
+    "id": "mixstream_radio",
+    "name": "MixStream Radio",
+    "description": "",
+    "url": "https://radio.mixstream.nl/boogie.mp3"
+  },
+  {
+    "id": "radio_idl",
+    "name": "Radio IDL",
+    "description": "",
+    "url": "http://mp3.radioidl.com:8002/ridl.mp3"
   }
 ]
