@@ -1,8 +1,10 @@
-"""Самопроверка MVP + визуализатора без экрана и без звука.
+"""Самопроверка без экрана (QT_QPA_PLATFORM=offscreen).
 
-Проверяет: загрузку станций, сборку окна, подъём mpv, IPC-связь, реальное
-воспроизведение потока (ao=null), паузу/стоп, чистое завершение, запись
-настроек, рендер волны и работу аудио-тапа. Рисует preview.png.
+Проверяет: станции, сборку окна, часы и пилюли, перетаскивание станций,
+подъём mpv и воспроизведение тестового потока (ao=null — нужна сеть), паузу и
+стоп, очередь скачанных и автопереход по eof, длительности и полосу перемотки,
+разбор процентов yt-dlp, визуализаторы, аудио-тап и настройки.
+Рисует preview.png.
 
 Запуск:  python3 smoke_test.py
 """
@@ -64,7 +66,8 @@ except Exception as exc:
 try:
     from radio.ui import MainWindow
     win = MainWindow()
-    real = [a for a in win.menu.actions() if not a.isSeparator()]
+    # IslandMenu держит пункты в _actions (QWidget.actions() их не знает)
+    real = [a for a in win.menu._actions if not a.isSeparator()]
     check("окно собирается",
           len(real) == len(stations) + 2 and win.pill is not None,
           "actions=%d" % len(real))
@@ -146,13 +149,19 @@ try:
           not win.btn_save.isEnabled())
     # меню скачанных: режим порядка + файлы (или заглушка)
     win._scan_downloads()
-    dl_actions = win.dl_menu.actions()
-    check("меню скачанных: переключатель порядка на месте",
-          len(dl_actions) >= 2
-          and dl_actions[0].text() in ("По порядку", "Вперемешку"),
+    dl_actions = win.dl_menu._actions
+    files = win._downloads_list()
+    check("меню скачанных: файлы или заглушка",
+          bool(dl_actions)
+          and (len(dl_actions) > 2 if files
+               else len(dl_actions) == 1 and not dl_actions[0].isEnabled()),
           [a.text() for a in dl_actions][:3])
-    check("меню скачанных строится (пустое или с файлами)",
-          len(dl_actions) >= 2)
+    check("меню скачанных: пункты порядка на месте",
+          (dl_actions[0].text() == "Играть все по порядку"
+           and dl_actions[1].text() == "Играть вперемешку") if files
+          else all(a.isSeparator() is False
+                   and "не скачано" in a.text() for a in dl_actions),
+          [a.text() for a in dl_actions][:2])
 except Exception as exc:
     check("окно собирается", False, str(exc))
     win = None
@@ -219,82 +228,75 @@ try:
 except Exception as exc:
     check("станции: save/load roundtrip", False, str(exc))
 
-# 6d. плейлист локальных файлов: очередь, автопереход, ←/→, конец очереди
+# 6d. очередь скачанных: PlayQueue, автопереход по eof, пустая очередь
 try:
     import tempfile
     import subprocess
     from radio.engine import AudioEngine as _AE
+    from radio.playlist import PlayQueue
 
-    # короткие файлы (2 сек) — для автоперехода по реальному eof
+    # короткие файлы (2 сек): реальный eof для fileEnded и длительности
     qdir = tempfile.mkdtemp(prefix="radiofm-pl-")
+    qfiles = []
+    for i in (1, 2):
+        p = os.path.join(qdir, "t%d.mp3" % i)
+        subprocess.run(
+            ["ffmpeg", "-v", "error", "-f", "lavfi", "-i",
+             "anullsrc=r=44100:cl=mono", "-t", "2", "-q:a", "9",
+             p, "-y"], capture_output=True, timeout=30)
+        if os.path.exists(p):
+            qfiles.append(p)
 
-    def _mk(prefix, count, secs):
-        out = []
-        for i in range(1, count + 1):
-            p = os.path.join(qdir, "%s%d.mp3" % (prefix, i))
-            subprocess.run(
-                ["ffmpeg", "-v", "error", "-f", "lavfi", "-i",
-                 "anullsrc=r=44100:cl=mono", "-t", str(secs), "-q:a", "9",
-                 p, "-y"], capture_output=True, timeout=30)
-            if os.path.exists(p):
-                out.append(p)
-        return out
+    items = ["/m/a.mp3", "/m/b.mp3", "/m/c.mp3"]
+    q = PlayQueue()
+    q.start(items, items[0])
+    order = [q.current()] + [q.next() for _ in range(3)]
+    check("очередь: по порядку и по кругу",
+          order == [items[0], items[1], items[2], items[0]], order)
+    check("очередь: prev листает назад по кругу",
+          [q.prev(), q.prev()] == [items[2], items[1]])
+    q.start(items, items[1])
+    q.set_shuffle(True)
+    seen = [q.current()] + [q.next() for _ in range(2)]
+    check("очередь: вперемешку — старт с выбранного, все треки по разу",
+          seen[0] == items[1] and sorted(seen) == sorted(items), seen)
+    q.set_shuffle(False)
+    check("очередь: выключение перемешки не сбивает текущий трек",
+          q.current() in items, q.current())
 
-    qfiles = _mk("t", 3, 2)      # автопереход
-    lfiles = _mk("l", 3, 10)     # ←/→ и вперемешку: трек не успевает кончиться
+    # UI: конец трека → следующий из очереди, пустая очередь → stop
+    if win is not None:
+        played, stopped = [], []
+        orig_play, orig_stop = win._play_queue_item, win.engine.stop
+        win._play_queue_item = played.append
+        win.engine.stop = lambda: stopped.append(True)
+        win._local = True
+        win.queue.start(items, items[0])
+        for _ in range(3):
+            win._on_file_ended()
+        win.queue.items = []
+        win._on_file_ended()
+        win._play_queue_item, win.engine.stop = orig_play, orig_stop
+        check("плейлист: автопереход по кругу, пустая очередь → stop",
+              played == [items[1], items[2], items[0]] and stopped,
+              (played, stopped))
 
-    if len(qfiles) < 3 or len(lfiles) < 3:
-        print("skip плейлист: ffmpeg не создал файлы")
+    # реальный eof: mpv доиграл файл → fileEnded (по нему идёт автопереход)
+    if qfiles:
+        eof_eng = _AE(extra_args=["--ao=null"])
+        ended, errs = [], []
+        eof_eng.fileEnded.connect(lambda: ended.append(True))
+        eof_eng.errorRaised.connect(errs.append)
+        eof_eng.play(qfiles[0])
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline and not ended and not errs:
+            app.processEvents()
+            time.sleep(0.03)
+        eof_eng.shutdown()
+        check("плейлист: доигранный файл даёт fileEnded, а не ошибку",
+              bool(ended) and not errs, "ended=%s errs=%s" % (ended, errs))
     else:
-        pl = _AE(extra_args=["--ao=null"])
-        pl_tracks, pl_pos, pl_errs, pl_states = [], [], [], []
-        pl.trackChanged.connect(pl_tracks.append)
-        pl.playlistChanged.connect(lambda p, c: pl_pos.append((p + 1, c)))
-        pl.errorRaised.connect(pl_errs.append)
-        pl.stateChanged.connect(pl_states.append)
-        pl.play_playlist(qfiles, shuffle=False)
-        check("плейлист: очередь принята", pl.has_queue)
-        pump(11.0)   # 3 трека по 2 сек + запас
-        played = [t for t in pl_tracks if t]
-        check("плейлист: автопереход по всем трекам",
-              played == ["t1.mp3", "t2.mp3", "t3.mp3"], "played=%s" % played)
-        check("плейлист: позиция в очереди идёт (1..3)",
-              [p for p, _ in pl_pos] == [1, 2, 3], "pos=%s" % pl_pos)
-        check("плейлист: eof не считается ошибкой", not pl_errs,
-              "errs=%s" % pl_errs)
-        check("плейлист: конец очереди → stopped",
-              pl.state == STOPPED and not pl.has_queue,
-              "state=%s queue=%s" % (pl.state, pl.has_queue))
-
-        # ←/→ внутри очереди (длинные файлы: трек не кончается сам)
-        pl2 = _AE(extra_args=["--ao=null"])
-        t2 = []
-        pl2.trackChanged.connect(t2.append)
-        pl2.play_playlist(lfiles, shuffle=False)
-        pump(3.0)
-        start = t2[-1] if t2 else None
-        pl2.playlist_next()
-        pump(2.5)
-        nxt = t2[-1] if t2 else None
-        pl2.playlist_prev()
-        pump(2.5)
-        back = t2[-1] if t2 else None
-        check("плейлист: next/prev листают очередь",
-              start == "l1.mp3" and nxt == "l2.mp3" and back == "l1.mp3",
-              "start=%s next=%s prev=%s" % (start, nxt, back))
-        pl2.shutdown()
-
-        # вперемешку: старт с выбранного, состав тот же
-        pl3 = _AE(extra_args=["--ao=null"])
-        t3 = []
-        pl3.trackChanged.connect(t3.append)
-        pl3.play_playlist(lfiles, shuffle=True)
-        pump(3.0)
-        first = t3[-1] if t3 else None
-        check("плейлист: вперемешку стартует с первого файла",
-              first == "l1.mp3", "first=%s" % first)
-        pl3.shutdown()
-        pl.shutdown()
+        print("skip плейлист: ffmpeg не создал файлы")
 except Exception as exc:
     import traceback
     traceback.print_exc()
@@ -319,121 +321,76 @@ try:
         check("время: битый путь → None",
               duration(os.path.join(qdir, "нет-такого.mp3")) is None)
 
-    # прогресс в UI: полоса идёт, перемотка работает
+    # позиция от mpv: полоса перемотки, время, видимость строки
     if win is not None:
         win._local = True          # как будто играет локальный файл
         win._on_position(30.0, 120.0)
         check("прогресс: полоса отражает позицию",
-              win.progress.value() == 250
+              win.seek.value() == 250
               and win.lbl_pos.text() == "0:30"
-              and win.lbl_dur.text() == "2:00",
-              "value=%d pos=%s dur=%s" % (win.progress.value(),
+              and win.lbl_dur.text() == "2:00"
+              and not win.seek_row.isHidden(),
+              "value=%d pos=%s dur=%s" % (win.seek.value(),
                                           win.lbl_pos.text(),
                                           win.lbl_dur.text()))
-        # радио (не локальный): полоса не должна врать
+        # радио (не локальный): длительности нет — строку прячем
         win._local = False
         win._on_position(7.0, 24.0)
-        check("прогресс: для радио полоса пустая",
-              win.progress.value() == 0
-              and win.lbl_dur.text() == "—:—"
-              and not win.progress.isEnabled(),
-              "value=%d dur=%s" % (win.progress.value(),
-                                   win.lbl_dur.text()))
-        # в списке скачанных видно время трека
-        win._local = True
-        win._scan_downloads()
-        texts = [a.text() for a in win.dl_menu.actions() if not a.isSeparator()]
-        check("прогресс: в списке скачанных есть время",
-              any("·" in t and ":" in t for t in texts[1:]),
-              texts[1:3])
+        check("прогресс: для радио полосы нет",
+              win._cur_dur == 0.0 and win.seek_row.isHidden(),
+              "dur=%s hidden=%s" % (win._cur_dur, win.seek_row.isHidden()))
 except Exception as exc:
     import traceback
     traceback.print_exc()
     check("прогресс трека", False, str(exc))
 
-# 6f. скачивание: полоса статуса показывает проценты и ETA
+# 6f. скачивание: проценты из вывода yt-dlp уходят в свою полосу
 try:
-    from radio.ui import _DL_PCT_RE, _DL_ETA_RE
+    from radio.ui import _DL_PCT_RE
 
     line = ("[download]  45.2% of    4.13MiB at    1.23MiB/s "
             "ETA 00:03 (frag 3/9)")
     m = _DL_PCT_RE.search(line)
-    check("скачивание: проценты из вывода yt-dlp",
+    check("скачивание: проценты из вывода yt-dlp разбираются",
           m is not None and abs(float(m.group(1)) - 45.2) < 0.01,
           "m=%s" % (m.group(1) if m else None))
-    e = _DL_ETA_RE.search(line)
-    check("скачивание: ETA из вывода yt-dlp",
-          e is not None and e.group(1) == "00:03",
-          "eta=%s" % (e.group(1) if e else None))
     # строки без процентов не должны ломать парсер
     check("скачивание: служебные строки не дают процентов",
           _DL_PCT_RE.search("[download] Destination: /x/y.mp3") is None
           and _DL_PCT_RE.search("[download] Download completed") is None)
 
     if win is not None:
-        # полоса переключается в режим скачивания и обратно
-        win._local = True
-        win._on_position(30.0, 120.0)      # играет файл
-        win._dl_begin()
-        check("скачивание: полоса занята загрузкой",
-              win._downloading and win.lbl_pos.text() == "Скачивание"
-              and win.lbl_dur.text() == "0%")
-        win._dl_set_pct(45.2)
-        check("скачивание: проценты видны в полосе",
-              win.lbl_dur.text() == "45%" and win.progress.value() == 450,
-              "dur=%s value=%d" % (win.lbl_dur.text(), win.progress.value()))
-        # позиция трека не должна перебивать индикатор загрузки
-        win._on_position(60.0, 120.0)
-        check("скачивание: позиция трека не ломает индикатор",
-              win.lbl_dur.text() == "45%" and win.progress.value() == 450)
-        win._dl_set_pct(100)
-        check("скачивание: после 100% — «Обработка»",
-              win.lbl_pos.text() == "Обработка…" and win.progress.value() == 1000,
-              win.lbl_pos.text())
-        win._dl_end()
-        check("скачивание: полоса возвращается к треку",
-              not win._downloading and win.lbl_dur.text() == "—:—"
-              and win.progress.value() == 0)
-        win._on_position(30.0, 120.0)
-        check("скачивание: после конца полоса снова показывает трек",
-              win.lbl_dur.text() == "2:00" and win.progress.value() == 250,
-              "dur=%s value=%d" % (win.lbl_dur.text(), win.progress.value()))
+        class _Proc:
+            def __init__(self, chunks):
+                self.chunks = list(chunks)
 
-        # файл уже лежал в «Музыке»: yt-dlp не качает, процентов нет
-        win._dl_begin()
-        win._dl_proc = None            # эмулируем живой процесс без данных
-        win._dl_timer.stop()
+            def readAllStandardOutput(self):
+                return self.chunks.pop(0) if self.chunks else b""
+
+            def deleteLater(self):
+                pass
+
+        # живой yt-dlp подменяем фейком: проверяем полосу, а не сеть
+        win._dl_proc = _Proc([b"[download]  1", b"2.5% of 3MiB\n",
+                              b"[download] Download completed\n"])
         win._dl_buf = ""
-        win._dl_already = True
-        win.lbl_pos.setText("Уже в «Музыке»")
-        win.lbl_dur.setText("100%")
-        win.progress.setValue(1000)
-        check("скачивание: файл уже в «Музыке» — полоса на 100%",
-              win.progress.value() == 1000 and "Уже" in win.lbl_pos.text(),
-              win.lbl_pos.text())
-        win._dl_end()
-
-        # запасной ход: реальных процентов нет — полоса всё равно ползёт
-        win._dl_begin()
-        win._dl_proc = None
-        win._dl_timer.stop()
-        start = win.progress.value()
-        for _ in range(5):
-            win._dl_tick_progress()
-        check("скачивание: без процентов полоса ползёт сама",
-              win.progress.value() > start and win.progress.value() <= 900,
-              "start=%d now=%d" % (start, win.progress.value()))
-        # но не врёт про 100%
-        for _ in range(200):
-            win._dl_tick_progress()
-        check("скачивание: запасной ход не доходит до 100%",
-              win.progress.value() == 900, win.progress.value())
-        # пришли настоящие проценты — запасной ход уступает
-        win._dl_set_pct(42)
-        win._dl_tick_progress()
-        check("скачивание: реальные проценты главнее запасного хода",
-              win.progress.value() == 420, win.progress.value())
-        win._dl_end()
+        win.dl_progress.setValue(0)
+        win.dl_progress.show()
+        win._on_dl_output()
+        partial = win.dl_progress.value()
+        win._on_dl_output()
+        check("скачивание: проценты видны в полосе загрузки",
+              partial < 1 and win.dl_progress.value() == 12
+              and win.dl_progress.format() == "12%",
+              "%s → %s (%s)" % (partial, win.dl_progress.value(),
+                                win.dl_progress.format()))
+        check("скачивание: полоса видна, пока качаем",
+              not win.dl_progress.isHidden())
+        win._on_dl_finished(0, None)
+        check("скачивание: после завершения полоса скрыта",
+              win.dl_progress.isHidden() and win._dl_proc is None)
+        win.dl_pill.setStyleSheet("")     # снять «✓ Сохранено!» сразу
+        win._count_downloads()
 except Exception as exc:
     import traceback
     traceback.print_exc()
@@ -515,14 +472,15 @@ try:
         gal.set_bands([0.6, 0.4, 0.2, 0.1, 0.05, 0.3, 0.5, 0.7])
         pump(0.02)
     check("Galaxy рендерится", not gal.grab().isNull())
-    # резкий скачок энергии = удар → сверхновая вспыхивает
-    gal._env, gal._prev_env = 0.2, 0.2
+    # резкий скачок энергии = удар → сверхновая вспыхивает и гаснет
+    gal._active = True
+    gal._prev_env, gal._env = 0.2, 0.6
     gal._update(0.016, gal._t)
-    gal.set_audio_level(0.95)
-    for _ in range(6):
-        pump(0.02)
-    check("Galaxy: удар даёт сверхновую", gal._nova > 0.3,
-          "nova=%.2f" % gal._nova)
+    nova = gal._nova
+    gal._update(0.5, gal._t)
+    check("Galaxy: удар даёт сверхновую, вспышка гаснет",
+          nova > 0.3 and gal._nova < nova,
+          "nova=%.2f → %.2f" % (nova, gal._nova))
 
     # Oscilloscope: реальная форма волны рисуется, idle — синусоида
     from radio.viz.oscilloscope import Oscilloscope
@@ -541,27 +499,16 @@ try:
           len(osc._wave) == 200 and osc._wave_time > 0,
           "wave=%d" % len(osc._wave))
 
-    # Aurora: ленты рендерятся и реагируют на полосы спектра
-    from radio.viz.aurora import Aurora
-    aua = Aurora()
-    aua.resize(500, 300)
-    aua.set_active(True)
-    for i in range(30):
-        aua.set_audio_level(0.3 + 0.3 * math.sin(i * 0.4))
-        aua.set_bands([0.7, 0.5, 0.3, 0.15, 0.1, 0.35, 0.55, 0.8])
-        pump(0.02)
-    check("Aurora рендерится", not aua.grab().isNull())
-
     # фон-картинка: set_background ставит pixmap, без него — сплошной цвет
     from PySide6.QtGui import QPixmap
     bg_path = os.path.join(HERE, "backgrounds", "balcony.png")
     if os.path.exists(bg_path):
         pm = QPixmap(bg_path)
-        aua.set_background(pm)
+        gal.set_background(pm)
         check("фон-картинка ставится и рендерится",
-              aua._bg is not None and not aua.grab().isNull())
-        aua.set_background(None)
-        check("фон снимается (обратно сплошной цвет)", aua._bg is None)
+              gal._bg is not None and not gal.grab().isNull())
+        gal.set_background(None)
+        check("фон снимается (обратно сплошной цвет)", gal._bg is None)
     else:
         print("skip фон: %s нет" % bg_path)
 
