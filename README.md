@@ -13,6 +13,32 @@ python3 main.py
 Сборка не требуется. Проверить: `python3 -c "import PySide6"`, `mpv --version`,
 `which yt-dlp`.
 
+### Иконка в меню приложений
+
+```bash
+mkdir -p ~/.local/share/applications
+cat > ~/.local/share/applications/marsikfm.desktop <<EOF
+[Desktop Entry]
+Type=Application
+Name=Marsik FM
+Comment=Интернет-радио с визуализаторами
+Exec=python3 $HOME/radiofm/main.py
+Path=$HOME/radiofm
+Icon=$HOME/radiofm/assets/icon.png
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+Keywords=radio;радио;music;музыка;
+StartupWMClass=radiofm
+EOF
+update-desktop-database ~/.local/share/applications 2>/dev/null || true
+```
+
+Появится в меню/лаунчере как «Marsik FM» (иконка — `assets/icon.png` из репо).
+`$HOME` подставляет твой домашний каталог при создании файла, поэтому имя
+пользователя нигде не хардкодится: на другом компьютере команду просто
+повторяешь. Папку проекта держи в `~/radiofm` — иначе поправь пути в `Exec`,
+`Path` и `Icon`.
+
 ## Установка на другом компьютере
 
 Нужны python3 и пакеты (имена по дистрибутивам):
