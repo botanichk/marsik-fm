@@ -104,6 +104,7 @@ function setState(text) { STATE.textContent = text; }
 function select(st, row) {
   if (current) current.classList.remove('on');
   current = row;
+  row.classList.remove('dead');
   row.classList.add('on');
   NOW.textContent = st.name;
   FOOT.hidden = false;
