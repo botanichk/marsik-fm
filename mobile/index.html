@@ -32,7 +32,18 @@
   nav button.tab.on { background: #2a1f1c; color: #ffb48f; box-shadow: inset 0 0 0 1px var(--acc); }
   nav button#check { min-width: 0; width: 44px; padding: 9px 0; border-radius: 999px; background: #151922; }
   nav button#check.busy { color: var(--acc); }
+  nav button#edit { min-width: 44px; padding: 9px 14px; border-radius: 999px; background: #151922; color: var(--muted); font-size: 14px; }
+  nav button#edit.on { background: #2a1f1c; color: #ffb48f; box-shadow: inset 0 0 0 1px var(--acc); }
   ul { list-style: none; margin: 0; padding: 8px 8px 0; }
+  li .del {
+    flex: none; width: 44px; height: 44px; min-width: 0; padding: 0;
+    background: none; color: #e5645a; font-size: 22px; line-height: 1;
+  }
+  #hiddenBox { margin: 18px 16px 0; padding-top: 12px; border-top: 1px dashed #2a3040; }
+  #hiddenBox h2 { margin: 0 0 6px; font-size: 13px; font-weight: 600; color: var(--muted); letter-spacing: .04em; }
+  #hiddenBox .hrow { display: flex; align-items: center; gap: 10px; padding: 6px 0; color: #9aa2b3; }
+  #hiddenBox .hrow span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #hiddenBox .hrow button { min-width: 0; padding: 8px 14px; font-size: 14px; }
   li {
     display: flex; align-items: center; gap: 6px;
     padding: 4px; margin: 6px 0; border-radius: 14px;
@@ -89,11 +100,13 @@
   <nav>
     <button class="tab on" data-tab="all">Все</button>
     <button class="tab" data-tab="fav">★ Избранные</button>
+    <button id="edit" title="Править список: скрыть станции" aria-label="Править список">✎</button>
     <button id="check" title="Проверить, какие станции отвечают" aria-label="Проверить станции">⟳</button>
   </nav>
 </header>
 
 <ul id="list"></ul>
+<section id="hiddenBox" hidden></section>
 <p id="hint">Загружаю станции…</p>
 
 <footer hidden>
@@ -115,6 +128,7 @@ const $ = (s) => document.querySelector(s);
 const LIST = $('#list'), HINT = $('#hint'), AUDIO = $('#audio'), FOOT = $('footer');
 const NOW = $('#now'), STATE = $('#state'), TOGGLE = $('#toggle'), STOP = $('#stop');
 const CHECK = $('#check');
+const EDIT = $('#edit');
 
 const CONNECT_MS = 10000;   // сколько ждём начала звука от одного сервера
 const STALL_MS = 15000;     // сколько терпим «буферизацию» посреди эфира
@@ -135,6 +149,8 @@ let favs = new Set(load('fav', []));
 let order = load('order', []);          // свой порядок (id)
 let good = load('good', {});            // id → последний рабочий адрес
 let tab = load('tab', 'all');
+let hidden = new Set(load('hidden', []));   // скрытые на этом телефоне
+let editing = false;
 const dead = new Map();                 // id → причина ('down' | 'nohttps'); только на
                                         // сессию: вечером работает, утром нет — и наоборот
 const UP = new Set();                   // адреса, которые мы сами «подняли» с http до https
@@ -177,7 +193,7 @@ function orderedIds() {
   return out;
 }
 function viewIds() {
-  const o = orderedIds();
+  const o = orderedIds().filter((id) => !hidden.has(id));
   const f = o.filter((id) => favs.has(id)), n = o.filter((id) => !favs.has(id));
   return tab === 'fav' ? f : f.concat(n);
 }
@@ -197,9 +213,14 @@ function makeRow(st) {
   const li = document.createElement('li');
   li.dataset.id = st.id;
   const star = document.createElement('button');
-  star.className = 'star' + (favs.has(st.id) ? ' on' : '');
-  star.textContent = favs.has(st.id) ? '★' : '☆';
-  star.setAttribute('aria-label', 'Избранное');
+  if (editing) {
+    star.className = 'del'; star.textContent = '✕';
+    star.setAttribute('aria-label', 'Скрыть станцию');
+  } else {
+    star.className = 'star' + (favs.has(st.id) ? ' on' : '');
+    star.textContent = favs.has(st.id) ? '★' : '☆';
+    star.setAttribute('aria-label', 'Избранное');
+  }
   const txt = document.createElement('span'); txt.className = 'txt';
   const b = document.createElement('b'); b.textContent = st.name;
   const small = document.createElement('small'); small.textContent = st.description || '';
@@ -229,16 +250,41 @@ function render() {
   LIST.textContent = '';
   for (const id of viewIds()) LIST.append(makeRow(byId.get(id)));
   for (const t of document.querySelectorAll('nav .tab')) t.classList.toggle('on', t.dataset.tab === tab);
+  EDIT.classList.toggle('on', editing);
+  EDIT.textContent = editing ? 'Готово' : '✎';
+  renderHidden();
   updateHint();
 }
+function renderHidden() {
+  const box = $('#hiddenBox');
+  box.hidden = !(editing && hidden.size);
+  if (box.hidden) return;
+  box.textContent = '';
+  const h = document.createElement('h2');
+  h.textContent = 'Скрытые на этом телефоне (' + hidden.size + ')';
+  box.append(h);
+  for (const id of hidden) {
+    const st = byId.get(id); if (!st) continue;
+    const row = document.createElement('div'); row.className = 'hrow'; row.dataset.id = id;
+    const name = document.createElement('span'); name.textContent = st.name;
+    const btn = document.createElement('button'); btn.textContent = 'Вернуть';
+    row.append(name, btn); box.append(row);
+  }
+}
+$('#hiddenBox').addEventListener('click', (e) => {
+  const row = e.target.closest('.hrow'); if (!row || !e.target.closest('button')) return;
+  hidden.delete(row.dataset.id); save('hidden', [...hidden]); render();
+});
 function updateHint(text) {
   if (text) { HINT.textContent = text; return; }
-  const nf = favs.size, total = stations.length;
-  if (tab === 'fav' && !nf) HINT.textContent = 'Пока пусто — нажми ☆ у станции, и она появится здесь.';
+  const nf = favs.size, total = stations.length - hidden.size;
+  if (editing) HINT.textContent = 'Правка: ✕ скрывает станцию на этом телефоне (на компьютере она останется). Скрытые можно вернуть ниже.';
+  else if (tab === 'fav' && !nf) HINT.textContent = 'Пока пусто — нажми ☆ у станции, и она появится здесь.';
   else if (tab === 'fav') HINT.textContent = 'Избранных: ' + nf + '. Порядок меняется перетаскиванием за значок справа.';
   else HINT.textContent = total + ' станций · избранные сверху · порядок — за значок справа';
 }
 
+EDIT.addEventListener('click', () => { editing = !editing; render(); });
 document.querySelectorAll('nav .tab').forEach((b) => b.addEventListener('click', () => {
   tab = b.dataset.tab; save('tab', tab); render();
 }));
@@ -247,6 +293,13 @@ LIST.addEventListener('click', (e) => {
   const li = e.target.closest('li'); if (!li) return;
   if (e.target.closest('.grip')) return;
   const st = byId.get(li.dataset.id);
+  if (e.target.closest('.del')) {
+    hidden.add(st.id); save('hidden', [...hidden]);
+    if (cur && cur.id === st.id) stopNow();
+    if (navigator.vibrate) navigator.vibrate(8);
+    render(); return;
+  }
+  if (editing) return;                  // в режиме правки строка не запускает станцию
   if (e.target.closest('.star')) {
     if (favs.has(st.id)) favs.delete(st.id); else favs.add(st.id);
     save('fav', [...favs]);
@@ -451,7 +504,7 @@ async function probe(st) {
 CHECK.addEventListener('click', async () => {
   if (CHECK.classList.contains('busy')) return;
   CHECK.classList.add('busy');
-  const queue = stations.slice(); let done = 0, bad = 0;
+  const queue = stations.filter((st) => !hidden.has(st.id)); let done = 0, bad = 0;
   const worker = async () => {
     while (queue.length) {
       const st = queue.shift();
@@ -461,14 +514,14 @@ CHECK.addEventListener('click', async () => {
         const l = candidates(st);
         dead.set(st.id, l.length && l.every((u) => UP.has(u)) ? 'nohttps' : 'down'); bad++;
       }
-      done++; updateHint('Проверяю… ' + done + ' из ' + stations.length);
+      done++; updateHint('Проверяю… ' + done + ' из ' + (stations.length - hidden.size));
       paintAll();
     }
   };
   await Promise.all([worker(), worker(), worker()]);
   CHECK.classList.remove('busy');
-  updateHint(bad ? 'Не отвечают: ' + bad + ' из ' + stations.length + ' (серым). Это на сейчас — позже могут заработать.'
-                 : 'Все ' + stations.length + ' станций отвечают.');
+  updateHint(bad ? 'Не отвечают: ' + bad + ' из ' + (stations.length - hidden.size) + ' (серым). Это на сейчас — позже могут заработать.'
+                 : 'Все ' + (stations.length - hidden.size) + ' станций отвечают.');
 });
 
 // ---------- старт ----------
