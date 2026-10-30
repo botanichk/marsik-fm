@@ -7,73 +7,102 @@
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0d0f14">
 <style>
-  :root { color-scheme: dark; }
+  :root { color-scheme: dark; --acc: #e8743b; --muted: #8b93a4; }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   body {
     margin: 0; background: #0d0f14; color: #e7e9ee;
     font: 16px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    padding: 0 0 calc(96px + env(safe-area-inset-bottom));
+    padding: 0 0 calc(104px + env(safe-area-inset-bottom));
   }
   header {
-    position: sticky; top: 0; z-index: 2; display: flex; gap: 12px;
-    align-items: center; padding: 14px 16px;
+    position: sticky; top: 0; z-index: 2;
+    padding: 12px 16px 8px; padding-top: calc(12px + env(safe-area-inset-top));
     background: #0d0f14ee; backdrop-filter: blur(8px);
     border-bottom: 1px solid #1c2029;
   }
+  .brand { display: flex; gap: 12px; align-items: center; }
   header img { width: 40px; height: 40px; border-radius: 10px; }
   header h1 { margin: 0; font-size: 18px; letter-spacing: .06em; }
   header p { margin: 2px 0 0; font-size: 11px; color: #7f8798; letter-spacing: .12em; }
+  nav { display: flex; gap: 8px; margin-top: 10px; }
+  nav button.tab {
+    min-width: 0; flex: 1; padding: 9px 10px; border-radius: 999px;
+    background: #151922; color: var(--muted); font-size: 14px;
+  }
+  nav button.tab.on { background: #2a1f1c; color: #ffb48f; box-shadow: inset 0 0 0 1px var(--acc); }
+  nav button#check { min-width: 0; width: 44px; padding: 9px 0; border-radius: 999px; background: #151922; }
+  nav button#check.busy { color: var(--acc); }
   ul { list-style: none; margin: 0; padding: 8px 8px 0; }
   li {
-    display: flex; align-items: center; gap: 12px;
-    padding: 12px 14px; margin: 6px 0; border-radius: 14px;
-    background: #151922; border: 1px solid transparent;
+    display: flex; align-items: center; gap: 6px;
+    padding: 4px; margin: 6px 0; border-radius: 14px;
+    background: #151922; border: 1px solid transparent; position: relative;
   }
   li:active { background: #1b2130; }
-  li.on { border-color: #e8743b; background: #1d1a1c; }
+  li.on { border-color: var(--acc); background: #1d1a1c; }
   li.dead { opacity: .55; }
-  li .txt { min-width: 0; flex: 1; }
-  li b { display: block; font-weight: 600; white-space: nowrap;
-         overflow: hidden; text-overflow: ellipsis; }
-  li small { display: block; color: #8b93a4; white-space: nowrap;
-             overflow: hidden; text-overflow: ellipsis; }
-  li .dot { width: 9px; height: 9px; border-radius: 50%; background: #2c3340; flex: none; }
-  li.on .dot { background: #e8743b; box-shadow: 0 0 12px #e8743b; }
+  li.drag { z-index: 4; background: #222a3a; box-shadow: 0 10px 28px #000a; border-color: #3a4560; opacity: 1; }
+  li .txt { min-width: 0; flex: 1; padding: 8px 6px; }
+  li b { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  li small { display: block; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  li .badge { display: none; font-size: 11px; color: #d9a35b; margin-top: 2px; }
+  li.nophone .badge, li.dead .badge { display: block; }
+  li .star {
+    flex: none; width: 44px; height: 44px; min-width: 0; padding: 0;
+    background: none; color: #4a5365; font-size: 24px; line-height: 1;
+  }
+  li .star.on { color: #ffc24a; }
+  li .grip {
+    flex: none; width: 44px; height: 44px; display: grid; place-items: center;
+    color: #5b6578; touch-action: none; cursor: grab;
+  }
+  li .grip svg { width: 18px; height: 18px; fill: currentColor; pointer-events: none; }
   footer {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 3;
-    display: flex; gap: 12px; align-items: center;
-    padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
+    display: flex; gap: 8px; align-items: center;
+    padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
     background: #11141bee; backdrop-filter: blur(10px);
     border-top: 1px solid #1c2029;
   }
+  footer[hidden] { display: none; }
   footer .txt { flex: 1; min-width: 0; }
   footer b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  footer small { color: #8b93a4; }
+  footer small { color: var(--muted); }
   button {
     font: inherit; color: #e7e9ee; background: #232a38; border: 0;
-    border-radius: 12px; padding: 11px 16px; min-width: 96px;
+    border-radius: 12px; padding: 11px 14px; min-width: 76px;
   }
   button:active { background: #2e3648; }
+  footer button.sq { min-width: 44px; padding: 11px 0; width: 44px; }
   #hint { margin: 10px 16px 0; color: #6e7688; font-size: 13px; }
 </style>
 </head>
 <body>
 <header>
-  <img src="../assets/icon.png" alt="">
-  <div>
-    <h1>MARSIK FM</h1>
-    <p>GOOD MUSIC · GOOD VIBES</p>
+  <div class="brand">
+    <img src="../assets/icon.png" alt="">
+    <div>
+      <h1>MARSIK FM</h1>
+      <p>GOOD MUSIC · GOOD VIBES</p>
+    </div>
   </div>
+  <nav>
+    <button class="tab on" data-tab="all">Все</button>
+    <button class="tab" data-tab="fav">★ Избранные</button>
+    <button id="check" title="Проверить, какие станции отвечают" aria-label="Проверить станции">⟳</button>
+  </nav>
 </header>
 
 <ul id="list"></ul>
-<p id="hint">Станции берутся из stations.json репозитория.</p>
+<p id="hint">Загружаю станции…</p>
 
 <footer hidden>
+  <button class="sq" id="prev" aria-label="Предыдущая">‹</button>
   <div class="txt">
     <b id="now">—</b>
     <small id="state">играет</small>
   </div>
+  <button class="sq" id="next" aria-label="Следующая">›</button>
   <button id="toggle">Пауза</button>
   <button id="stop">Стоп</button>
 </footer>
@@ -81,99 +110,362 @@
 <audio id="audio" preload="none"></audio>
 
 <script>
-const LIST = document.getElementById('list');
-const HINT = document.getElementById('hint');
-const AUDIO = document.getElementById('audio');
-const FOOT = document.querySelector('footer');
-const NOW = document.getElementById('now');
-const STATE = document.getElementById('state');
-const TOGGLE = document.getElementById('toggle');
-const STOP = document.getElementById('stop');
-let current = null;          // пункт списка, который играет (или пытался)
+'use strict';
+const $ = (s) => document.querySelector(s);
+const LIST = $('#list'), HINT = $('#hint'), AUDIO = $('#audio'), FOOT = $('footer');
+const NOW = $('#now'), STATE = $('#state'), TOGGLE = $('#toggle'), STOP = $('#stop');
+const CHECK = $('#check');
 
-// на https-странице http-поток блокируется как mixed content — пробуем https
-function usable(url) {
-  if (location.protocol === 'https:' && url.startsWith('http://')) {
-    return url.replace('http://', 'https://');
+const CONNECT_MS = 10000;   // сколько ждём начала звука от одного сервера
+const STALL_MS = 15000;     // сколько терпим «буферизацию» посреди эфира
+const GRIP_SVG = '<svg viewBox="0 0 18 18"><circle cx="6" cy="3" r="1.6"/><circle cx="12" cy="3" r="1.6"/>' +
+  '<circle cx="6" cy="9" r="1.6"/><circle cx="12" cy="9" r="1.6"/><circle cx="6" cy="15" r="1.6"/><circle cx="12" cy="15" r="1.6"/></svg>';
+
+// ---------- хранилище (на этом телефоне) ----------
+const KEY = (k) => 'marsikfm:' + k;
+function load(k, def) {
+  try { const v = localStorage.getItem(KEY(k)); return v == null ? def : JSON.parse(v); }
+  catch (e) { return def; }
+}
+function save(k, v) { try { localStorage.setItem(KEY(k), JSON.stringify(v)); } catch (e) {} }
+
+let stations = [];
+let byId = new Map();
+let favs = new Set(load('fav', []));
+let order = load('order', []);          // свой порядок (id)
+let good = load('good', {});            // id → последний рабочий адрес
+let tab = load('tab', 'all');
+const dead = new Set();                 // не ответили в эту сессию (не сохраняем:
+                                        // вечером работает, утром нет — и наоборот)
+
+// ---------- адреса потока ----------
+function candidates(st) {
+  const base = [].concat(st.urls || st.url || []);
+  const out = [];
+  const add = (u) => { if (u && !out.includes(u)) out.push(u); };
+  for (const raw of base) {
+    let u;
+    try { u = new URL(raw); } catch (e) { continue; }
+    if (location.protocol === 'https:' && u.protocol === 'http:') {
+      // http-поток на https-странице браузер блокирует: пробуем https-версию.
+      // На IP-адрес сертификата не бывает — такой поток на телефоне не сыграет.
+      if (/^\d+\.\d+\.\d+\.\d+$/.test(u.hostname)) continue;
+      u.protocol = 'https:';
+    }
+    add(u.href);
+    // у SomaFM несколько зеркал: если одно перегружено — пробуем другое
+    if (/^ice\d+\.somafm\.com$/.test(u.hostname)) {
+      for (const n of [1, 2, 4, 6]) {
+        const m = new URL(u.href); m.hostname = 'ice' + n + '.somafm.com'; add(m.href);
+      }
+    }
   }
-  return url;
+  const g = good[st.id];                 // последний рабочий — первым
+  if (g && out.includes(g)) { out.splice(out.indexOf(g), 1); out.unshift(g); }
+  return out;
+}
+const phoneOk = (st) => candidates(st).length > 0;
+
+// ---------- порядок и избранное ----------
+function orderedIds() {
+  const ids = stations.map((s) => s.id), seen = new Set(), out = [];
+  for (const id of order) if (byId.has(id) && !seen.has(id)) { seen.add(id); out.push(id); }
+  for (const id of ids) if (!seen.has(id)) out.push(id);
+  return out;
+}
+function viewIds() {
+  const o = orderedIds();
+  const f = o.filter((id) => favs.has(id)), n = o.filter((id) => !favs.has(id));
+  return tab === 'fav' ? f : f.concat(n);
+}
+function commitOrder() {
+  // порядок строк в DOM → общий порядок (избранные сверху, остальные ниже)
+  const dom = [...LIST.children].map((li) => li.dataset.id);
+  const all = orderedIds();
+  const f = dom.filter((id) => favs.has(id));
+  const n = dom.filter((id) => !favs.has(id));
+  order = f.concat(all.filter((id) => favs.has(id) && !f.includes(id)),
+                   n, all.filter((id) => !favs.has(id) && !n.includes(id)));
+  save('order', order);
 }
 
-function setState(text) { STATE.textContent = text; }
+// ---------- список ----------
+function makeRow(st) {
+  const li = document.createElement('li');
+  li.dataset.id = st.id;
+  const star = document.createElement('button');
+  star.className = 'star' + (favs.has(st.id) ? ' on' : '');
+  star.textContent = favs.has(st.id) ? '★' : '☆';
+  star.setAttribute('aria-label', 'Избранное');
+  const txt = document.createElement('span'); txt.className = 'txt';
+  const b = document.createElement('b'); b.textContent = st.name;
+  const small = document.createElement('small'); small.textContent = st.description || '';
+  const badge = document.createElement('span'); badge.className = 'badge';
+  txt.append(b, small, badge);
+  const grip = document.createElement('span'); grip.className = 'grip';
+  grip.innerHTML = GRIP_SVG; grip.setAttribute('aria-label', 'Перетащить');
+  li.append(star, txt, grip);
+  paintRow(li);
+  return li;
+}
+function paintRow(li) {
+  const st = byId.get(li.dataset.id);
+  const nophone = !phoneOk(st);
+  li.classList.toggle('on', !!(cur && cur.id === st.id));
+  li.classList.toggle('nophone', nophone);
+  li.classList.toggle('dead', nophone || dead.has(st.id));
+  const badge = li.querySelector('.badge');
+  badge.textContent = nophone ? 'только http — на телефоне не играет'
+                    : dead.has(st.id) ? 'не отвечает' : '';
+}
+function paintAll() { for (const li of LIST.children) paintRow(li); }
 
-function select(st, row) {
-  if (current) current.classList.remove('on');
-  current = row;
-  row.classList.remove('dead');
-  row.classList.add('on');
-  NOW.textContent = st.name;
-  FOOT.hidden = false;
-  setState("подключаюсь…");
+function render() {
+  LIST.textContent = '';
+  for (const id of viewIds()) LIST.append(makeRow(byId.get(id)));
+  for (const t of document.querySelectorAll('nav .tab')) t.classList.toggle('on', t.dataset.tab === tab);
+  updateHint();
+}
+function updateHint(text) {
+  if (text) { HINT.textContent = text; return; }
+  const nf = favs.size, total = stations.length;
+  if (tab === 'fav' && !nf) HINT.textContent = 'Пока пусто — нажми ☆ у станции, и она появится здесь.';
+  else if (tab === 'fav') HINT.textContent = 'Избранных: ' + nf + '. Порядок меняется перетаскиванием за значок справа.';
+  else HINT.textContent = total + ' станций · избранные сверху · порядок — за значок справа';
+}
+
+document.querySelectorAll('nav .tab').forEach((b) => b.addEventListener('click', () => {
+  tab = b.dataset.tab; save('tab', tab); render();
+}));
+
+LIST.addEventListener('click', (e) => {
+  const li = e.target.closest('li'); if (!li) return;
+  if (e.target.closest('.grip')) return;
+  const st = byId.get(li.dataset.id);
+  if (e.target.closest('.star')) {
+    if (favs.has(st.id)) favs.delete(st.id); else favs.add(st.id);
+    save('fav', [...favs]);
+    if (navigator.vibrate) navigator.vibrate(8);
+    render(); return;
+  }
+  startStation(st);
+});
+
+// ---------- перетаскивание за значок ----------
+let drag = null;
+LIST.addEventListener('pointerdown', (e) => {
+  const grip = e.target.closest('.grip'); if (!grip) return;
+  const li = grip.closest('li');
+  e.preventDefault();
+  if (grip.setPointerCapture) { try { grip.setPointerCapture(e.pointerId); } catch (err) {} }
+  const r = li.getBoundingClientRect();
+  drag = { li, id: e.pointerId, grab: e.clientY - r.top, y: e.clientY, fav: favs.has(li.dataset.id), raf: 0 };
+  li.classList.add('drag');
+  if (navigator.vibrate) navigator.vibrate(10);
+  dragFrame();
+});
+function dragFrame() {
+  if (!drag) return;
+  const { li } = drag;
+  // автопрокрутка у краёв экрана
+  if (drag.y < 130) window.scrollBy(0, -10);
+  else if (drag.y > innerHeight - 150) window.scrollBy(0, 10);
+  // куда вставить: среди строк той же группы (избранные / обычные)
+  const same = [...LIST.children].filter((o) => o !== li && favs.has(o.dataset.id) === drag.fav);
+  let before = null;
+  for (const o of same) {
+    const rr = o.getBoundingClientRect();
+    if (drag.y < rr.top + rr.height / 2) { before = o; break; }
+  }
+  if (before) { if (li.nextElementSibling !== before) LIST.insertBefore(li, before); }
+  else if (same.length) {
+    const last = same[same.length - 1];
+    if (last.nextElementSibling !== li) last.after(li);
+  }
+  // строка следует за пальцем
+  li.style.transform = 'none';
+  const top = li.getBoundingClientRect().top;
+  li.style.transform = 'translateY(' + (drag.y - drag.grab - top) + 'px)';
+  drag.raf = requestAnimationFrame(dragFrame);
+}
+LIST.addEventListener('pointermove', (e) => { if (drag && e.pointerId === drag.id) drag.y = e.clientY; });
+function endDrag(e) {
+  if (!drag || (e && e.pointerId !== drag.id)) return;
+  cancelAnimationFrame(drag.raf);
+  drag.li.classList.remove('drag'); drag.li.style.transform = '';
+  drag = null;
+  commitOrder();
+}
+LIST.addEventListener('pointerup', endDrag);
+LIST.addEventListener('pointercancel', endDrag);
+
+// ---------- воспроизведение с запасными серверами ----------
+let cur = null;                       // играющая станция
+const S = { intent: false, token: 0, cands: [], idx: 0, retry: 0, timer: 0, stall: 0 };
+
+function setState(t) { STATE.textContent = t; }
+function clearTimers() { clearTimeout(S.timer); clearTimeout(S.stall); }
+
+function startStation(st) {
+  S.token++; clearTimers();
+  cur = st; S.intent = true; S.retry = 0; S.idx = 0;
+  S.cands = candidates(st);
+  save('last', st.id);
+  NOW.textContent = st.name; FOOT.hidden = false;
+  TOGGLE.textContent = 'Пауза';
+  paintAll();
   if ('mediaSession' in navigator) {
     navigator.mediaSession.metadata = new MediaMetadata({
-      title: st.name,
-      artist: st.description || 'Marsik FM',
+      title: st.name, artist: st.description || 'Marsik FM',
       artwork: [{ src: '../assets/icon.png', sizes: '256x256', type: 'image/png' }],
     });
   }
+  if (!S.cands.length) {
+    S.intent = false; AUDIO.pause();
+    setState('только http — на телефоне не играет'); return;
+  }
+  attempt();
 }
 
-function play(st, row) {
-  AUDIO.pause();
-  AUDIO.src = usable(st.url);
-  select(st, row);
+function attempt() {
+  const tok = S.token;
+  if (S.idx >= S.cands.length) return giveUp();
+  setState(S.idx === 0 && S.retry === 0 ? 'подключаюсь…' : 'пробую другой сервер…');
+  AUDIO.src = S.cands[S.idx];
   const p = AUDIO.play();
-  if (p && p.catch) p.catch(() => {
-    row.classList.add('dead');
-    setState("не играет в браузере");
+  if (p && p.catch) p.catch((err) => {
+    if (tok !== S.token) return;                 // уже переключились — это старый запрос
+    if (err && err.name === 'AbortError') return;
+    if (err && err.name === 'NotAllowedError') { S.intent = false; setState('нажми «Играть»'); return; }
+    failover();
   });
-  localStorage.setItem('station', st.id);
+  clearTimeout(S.timer);
+  S.timer = setTimeout(() => { if (tok === S.token && S.intent) failover(); }, CONNECT_MS);
+}
+function failover() { clearTimers(); S.idx++; attempt(); }
+
+function giveUp() {
+  if (!cur) return;
+  dead.add(cur.id); paintAll();
+  if (S.retry < 4) {                              // эфир мог просто моргнуть
+    S.retry++;
+    setState('станция не отвечает, повторяю…');
+    const tok = ++S.token;
+    S.timer = setTimeout(() => { if (tok === S.token && S.intent) { S.idx = 0; attempt(); } }, 3000 * S.retry);
+  } else {
+    S.intent = false;
+    setState('не отвечает — нажми, чтобы повторить');
+  }
+}
+function reconnect(msg) {
+  if (!cur || !S.intent) return;
+  clearTimers(); S.token++; S.idx = 0; S.retry++;
+  if (S.retry > 6) { S.intent = false; setState('связь пропала — нажми, чтобы повторить'); return; }
+  setState(msg || 'переподключаюсь…');
+  const tok = S.token;
+  S.timer = setTimeout(() => { if (tok === S.token && S.intent) attempt(); }, 800 * S.retry);
 }
 
-AUDIO.addEventListener('playing', () => { setState("играет"); TOGGLE.textContent = "Пауза"; });
-AUDIO.addEventListener('pause', () => { setState("пауза"); TOGGLE.textContent = "Играть"; });
-AUDIO.addEventListener('waiting', () => setState("буферизация…"));
-AUDIO.addEventListener('error', () => {
-  setState("не играет в браузере");
-  if (current) current.classList.add('dead');
+AUDIO.addEventListener('playing', () => {
+  clearTimers();
+  S.retry = 0;
+  if (cur) {
+    dead.delete(cur.id);
+    good[cur.id] = S.cands[S.idx]; save('good', good);
+    paintAll();
+  }
+  setState('играет'); TOGGLE.textContent = 'Пауза';
 });
+AUDIO.addEventListener('pause', () => { if (!S.intent || AUDIO.ended) return; setState('пауза'); TOGGLE.textContent = 'Играть'; });
+AUDIO.addEventListener('waiting', () => {
+  if (!S.intent) return;
+  setState('буферизация…');
+  clearTimeout(S.stall);
+  const tok = S.token;
+  S.stall = setTimeout(() => { if (tok === S.token) reconnect('поток завис, переподключаюсь…'); }, STALL_MS);
+});
+AUDIO.addEventListener('error', () => { if (S.intent) failover(); });
+AUDIO.addEventListener('ended', () => { if (S.intent) reconnect('эфир прервался, переподключаюсь…'); });
+addEventListener('online', () => { if (cur && S.intent && AUDIO.paused) reconnect('сеть вернулась…'); });
 
+function pauseNow() {
+  S.intent = false; clearTimers(); S.token++;
+  AUDIO.pause(); setState('пауза'); TOGGLE.textContent = 'Играть';
+}
+function stopNow() {
+  S.intent = false; clearTimers(); S.token++;
+  AUDIO.pause(); AUDIO.removeAttribute('src'); AUDIO.load();
+  FOOT.hidden = true; cur = null; paintAll();
+}
 TOGGLE.addEventListener('click', () => {
-  if (AUDIO.paused) AUDIO.play(); else AUDIO.pause();
+  if (!cur) return;
+  if (S.intent) pauseNow(); else startStation(cur);   // эфир живой — подключаемся заново
 });
-STOP.addEventListener('click', () => {
-  AUDIO.pause();
-  AUDIO.removeAttribute('src');
-  AUDIO.load();
-  FOOT.hidden = true;
-  if (current) current.classList.remove('on');
-  current = null;
-});
+STOP.addEventListener('click', stopNow);
+
+function step(dir) {
+  const ids = viewIds().filter((id) => phoneOk(byId.get(id)));
+  if (!ids.length) return;
+  let i = cur ? ids.indexOf(cur.id) : -1;
+  i = (i + dir + ids.length) % ids.length;
+  startStation(byId.get(ids[i]));
+}
+$('#prev').addEventListener('click', () => step(-1));
+$('#next').addEventListener('click', () => step(1));
 
 if ('mediaSession' in navigator) {
-  navigator.mediaSession.setActionHandler('pause', () => AUDIO.pause());
-  navigator.mediaSession.setActionHandler('play', () => AUDIO.play());
-  navigator.mediaSession.setActionHandler('stop', () => STOP.click());
+  const h = (n, f) => { try { navigator.mediaSession.setActionHandler(n, f); } catch (e) {} };
+  h('play', () => { if (cur) startStation(cur); });
+  h('pause', pauseNow);
+  h('stop', stopNow);
+  h('previoustrack', () => step(-1));
+  h('nexttrack', () => step(1));
 }
 
-fetch('../stations.json')
-  .then(r => r.json())
-  .then(stations => {
-    HINT.textContent = stations.length + " станций · нажми, чтобы слушать";
-    const last = localStorage.getItem('station');
-    for (const st of stations) {
-      const li = document.createElement('li');
-      li.innerHTML = '<span class="dot"></span><span class="txt"><b></b><small></small></span>';
-      li.querySelector('b').textContent = st.name;
-      li.querySelector('small').textContent = st.description || st.url;
-      li.addEventListener('click', () => play(st, li));
-      if (st.id === last) li.classList.add('on'), current = li;
-      LIST.append(li);
+// ---------- проверка, какие станции отвечают ----------
+async function probe(st) {
+  const list = candidates(st);
+  if (!list.length) return false;
+  for (const url of list.slice(0, 2)) {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 7000);
+    try {
+      await fetch(url, { mode: 'no-cors', signal: ctl.signal, cache: 'no-store' });
+      clearTimeout(t); ctl.abort(); return true;     // заголовки пришли — сервер жив
+    } catch (e) { clearTimeout(t); }
+  }
+  return false;
+}
+CHECK.addEventListener('click', async () => {
+  if (CHECK.classList.contains('busy')) return;
+  CHECK.classList.add('busy');
+  const queue = stations.slice(); let done = 0, bad = 0;
+  const worker = async () => {
+    while (queue.length) {
+      const st = queue.shift();
+      const ok = await probe(st);
+      if (ok) dead.delete(st.id); else { dead.add(st.id); bad++; }
+      done++; updateHint('Проверяю… ' + done + ' из ' + stations.length);
+      paintAll();
     }
+  };
+  await Promise.all([worker(), worker(), worker()]);
+  CHECK.classList.remove('busy');
+  updateHint(bad ? 'Не отвечают: ' + bad + ' из ' + stations.length + ' (серым). Это на сейчас — позже могут заработать.'
+                 : 'Все ' + stations.length + ' станций отвечают.');
+});
+
+// ---------- старт ----------
+fetch('../stations.json')
+  .then((r) => r.json())
+  .then((list) => {
+    stations = list.filter((s) => s && s.id && s.name && (s.url || s.urls));
+    byId = new Map(stations.map((s) => [s.id, s]));
+    const last = load('last', null) || localStorage.getItem('station');
+    if (last && byId.has(last)) cur = byId.get(last);   // подсветка последней, без автозапуска
+    render();
   })
-  .catch(() => {
-    HINT.textContent = "Не удалось прочитать stations.json — открой страницу по ссылке с GitHub Pages.";
-  });
+  .catch(() => { HINT.textContent = 'Не удалось прочитать stations.json — открой страницу по ссылке с GitHub Pages.'; });
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
