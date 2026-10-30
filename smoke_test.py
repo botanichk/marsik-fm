@@ -271,6 +271,7 @@ try:
         win._play_queue_item = played.append
         win.engine.stop = lambda: stopped.append(True)
         win._local = True
+        win.queue.set_shuffle(False)      # QSettings мог сохранить «вперемешку»
         win.queue.start(items, items[0])
         for _ in range(3):
             win._on_file_ended()
@@ -279,7 +280,7 @@ try:
         win._play_queue_item, win.engine.stop = orig_play, orig_stop
         check("плейлист: автопереход по кругу, пустая очередь → stop",
               played == [items[1], items[2], items[0]] and stopped,
-              (played, stopped))
+              "played=%s stopped=%s" % (played, stopped))
 
     # реальный eof: mpv доиграл файл → fileEnded (по нему идёт автопереход)
     if qfiles:
@@ -434,33 +435,33 @@ try:
     pump(0.5)
     check("волна рисуется и в idle", not wave.grab().isNull())
 
-    # Nebulous: рендерится, реагирует на полосы спектра
-    from radio.viz.nebulous import Nebulous
-    neb = Nebulous()
-    neb.resize(500, 300)
-    neb.set_active(True)
+    # Spectrum: рендерится, реагирует на полосы спектра
+    from radio.viz.spectrum import Spectrum
+    sp = Spectrum()
+    sp.resize(500, 300)
+    sp.set_active(True)
     for i in range(40):
-        neb.set_audio_level(0.3 + 0.3 * math.sin(i * 0.4))
-        neb.set_bands([0.6, 0.4, 0.2, 0.1, 0.05, 0.3, 0.5, 0.7])
+        sp.set_audio_level(0.3 + 0.3 * math.sin(i * 0.4))
+        sp.set_bands([0.6, 0.4, 0.2, 0.1, 0.05, 0.3, 0.5, 0.7])
         pump(0.02)
-    check("Nebulous рендерится", not neb.grab().isNull())
+    check("Spectrum рендерится", not sp.grab().isNull())
 
     # полосы хранятся как есть (реакция на реальный спектр, без AGC)
-    neb.set_bands([0.9, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.8])
+    sp.set_bands([0.9, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.8])
     check("спектр различает низ/верх",
-          abs(neb._bands[0] - neb._bands[1]) > 0.5,
-          "bands=%s" % neb._bands)
+          abs(sp._bands[0] - sp._bands[1]) > 0.5,
+          "bands=%s" % sp._bands)
 
     # переключение режимов (QComboBox → QStackedWidget)
     from PySide6.QtWidgets import QComboBox, QStackedWidget
     stack = QStackedWidget()
     stack.addWidget(wave)
-    stack.addWidget(neb)
+    stack.addWidget(sp)
     combo = QComboBox()
-    combo.addItems(["Glowing Wave", "Nebulous"])
+    combo.addItems(["Glowing Wave", "Spectrum"])
     combo.currentIndexChanged.connect(lambda i: stack.setCurrentIndex(i))
     combo.setCurrentIndex(1)
-    check("переключение на Nebulous", stack.currentWidget() is neb)
+    check("переключение на Spectrum", stack.currentWidget() is sp)
 
     # Galaxy: рендерится, вращается, реагирует на полосы и удар (сверхновая)
     from radio.viz.galaxy import Galaxy
@@ -472,9 +473,9 @@ try:
         gal.set_bands([0.6, 0.4, 0.2, 0.1, 0.05, 0.3, 0.5, 0.7])
         pump(0.02)
     check("Galaxy рендерится", not gal.grab().isNull())
-    # резкий скачок энергии = удар → сверхновая вспыхивает и гаснет
+    # удар (beat) → сверхновая вспыхивает и гаснет
     gal._active = True
-    gal._prev_env, gal._env = 0.2, 0.6
+    gal._prev_beat, gal._beat = 0.0, 1.0
     gal._update(0.016, gal._t)
     nova = gal._nova
     gal._update(0.5, gal._t)

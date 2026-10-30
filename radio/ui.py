@@ -19,11 +19,13 @@ import shutil
 from string import Template
 
 from PySide6.QtCore import (
-    QAbstractAnimation, QPropertyAnimation, QProcess, QSettings,
-    QStandardPaths, Qt, QTimer,
+    QAbstractAnimation, QEvent, QPropertyAnimation, QProcess, QSettings,
+    QStandardPaths, Qt, QTime, QTimer,
 )
 from PySide6.QtCore import QUrl, Signal
-from PySide6.QtGui import QColor, QDesktopServices, QIcon, QPainter, QPixmap
+from PySide6.QtGui import (
+    QColor, QDesktopServices, QFont, QIcon, QPainter, QPixmap,
+)
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QFrame,
     QGraphicsOpacityEffect, QHBoxLayout, QLabel, QLineEdit, QMenu,
@@ -75,6 +77,12 @@ def _bg_label(name):
 _VIZ_NAMES = ["Glowing Wave", "Ring", "Bars", "Spectrum", "Fireflies",
               "Liquid", "Galaxy", "Warp", "Oscilloscope"]
 
+# шрифт часов — как у виджета часов в Noctalia, но плотнее: ExtraLight
+# (тот, что в виджете) на тёмном фоне читается плохо, SemiBold держит
+# тот же точечный рисунок и виден издалека
+CLOCK_FONT = "Bitcount Single Cursive SemiBold"
+CLOCK_FORMAT = "HH:mm"
+
 _YTDLP = shutil.which("yt-dlp") or ""
 # yt-dlp: строка прогресса "[download]  45.2% of ..."
 _DL_PCT_RE = re.compile(r"\[download\]\s+(\d{1,3}(?:\.\d+)?)%")
@@ -104,6 +112,11 @@ QWidget {
 QLabel#logo { font-size: 24px; font-weight: 800; color: ${title}; }
 QLabel#tagline { font-size: 11px; color: ${accent}; letter-spacing: 2px; }
 QLabel#slogan { font-size: 13px; color: ${muted}; font-style: italic; }
+QLabel#clock {
+    font-family: "Bitcount Single Cursive SemiBold";
+    font-size: 40px;
+    color: ${primary};
+}
 QLabel#section { font-size: 12px; color: ${muted}; letter-spacing: 2px; }
 QLabel#station { font-size: 20px; font-weight: bold; color: ${text}; }
 QLabel#desc { color: ${muted}; font-size: 13px; }
@@ -323,6 +336,48 @@ class _Canvas(QWidget):
             p.fillRect(self.rect(), themes.current.q(themes.current.canvas))
 
 
+class Pill(QToolButton):
+    """Пилюля-остров фиксированной ширины: длинный текст режется многоточием.
+
+    Без ограничения кнопка растягивалась под длинное имя трека/станции и
+    сдвигала всю шапку. Полный текст остаётся в подсказке.
+    """
+
+    def __init__(self, max_width=220, parent=None):
+        super().__init__(parent)
+        self._max_w = max_width
+        self._hint = ""
+        self._full = ""
+        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+
+    def setText(self, text):
+        self._full = text
+        self._apply()
+
+    def fullText(self):
+        return self._full
+
+    def setToolTip(self, tip):
+        self._hint = tip
+        self._apply()
+
+    def _apply(self):
+        avail = self._max_w - 32          # padding 14+14 из QSS + рамка
+        shown = self.fontMetrics().elidedText(self._full, Qt.ElideRight, avail)
+        super().setText(shown)
+        if shown != self._full:
+            tip = self._full + ("\n" + self._hint if self._hint else "")
+        else:
+            tip = self._hint
+        super().setToolTip(tip)
+        self.updateGeometry()
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.FontChange:   # QSS применил свой шрифт
+            self._apply()
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -335,6 +390,7 @@ class MainWindow(QMainWindow):
         self._last_error = ""
         self._track = ""            # текущий трек (метаданные)
         self._dl_proc = None        # активный процесс yt-dlp
+        self._dl_buf = ""           # недописанная строка вывода yt-dlp
         self._local = False         # играет локальный файл (не радио)
         self._viz_idx = 0           # выбранный режим визуализатора
         self.queue = PlayQueue()    # очередь скачанных треков
@@ -403,7 +459,7 @@ class MainWindow(QMainWindow):
         # «динамический остров»: пилюля активной станции, клик — список
         # список вырастает из панели шапки (остров, как в Noctalia)
         self.menu = IslandMenu(central, header)
-        self.pill = QToolButton()
+        self.pill = Pill()
         self.pill.setObjectName("pill")
         self.pill.setText("Выберите станцию")
         self.pill.setToolTip("Станции (клик — список)")
@@ -411,6 +467,8 @@ class MainWindow(QMainWindow):
         self.pill.clicked.connect(self.menu.toggle)
         # меню пересобирается при открытии: пункт «Удалить» всегда актуален
         self.menu.aboutToShow.connect(self._rebuild_menu)
+        # перетаскивание станций: новый порядок сразу пишется в stations.json
+        self.menu.reordered.connect(self._on_station_reordered)
         hbox.addWidget(self.pill, 0, Qt.AlignVCenter)
 
         hbox.addSpacing(10)
@@ -418,7 +476,7 @@ class MainWindow(QMainWindow):
         # пилюля скачанных треков: список из downloads/, клик — воспроизведение
         self.dl_menu = IslandMenu(central, header)
         self.dl_menu.aboutToShow.connect(self._scan_downloads)
-        self.dl_pill = QToolButton()
+        self.dl_pill = Pill()
         self.dl_pill.setObjectName("pill")
         self.dl_pill.setText("Скачанные")
         self.dl_menu.set_trigger(self.dl_pill)
@@ -431,7 +489,7 @@ class MainWindow(QMainWindow):
         # пилюля режима визуализатора
         self.viz_menu = IslandMenu(central, header)
         self.viz_menu.aboutToShow.connect(self._build_viz_menu)
-        self.viz_pill = QToolButton()
+        self.viz_pill = Pill()
         self.viz_pill.setObjectName("pill")
         self.viz_pill.setText("✦  %s" % _VIZ_NAMES[0])
         self.viz_pill.setToolTip("Режим визуализатора (клик — список)")
@@ -444,7 +502,7 @@ class MainWindow(QMainWindow):
         # пилюля фона: картинки из папки backgrounds/
         self.bg_menu = IslandMenu(central, header)
         self.bg_menu.aboutToShow.connect(self._build_bg_menu)
-        self.bg_pill = QToolButton()
+        self.bg_pill = Pill()
         self.bg_pill.setObjectName("pill")
         self.bg_pill.setText("Фон: без фона")
         self.bg_pill.setToolTip(
@@ -459,7 +517,7 @@ class MainWindow(QMainWindow):
         # пилюля темы: цвета интерфейса и визуализаторов (theme.py)
         self.theme_menu = IslandMenu(central, header)
         self.theme_menu.aboutToShow.connect(self._build_theme_menu)
-        self.theme_pill = QToolButton()
+        self.theme_pill = Pill(300)
         self.theme_pill.setObjectName("pill")
         self.theme_pill.setText("Тема: %s" % themes.current.name)
         self.theme_pill.setToolTip("Цветовая тема (клик — список)")
@@ -467,16 +525,25 @@ class MainWindow(QMainWindow):
         self.theme_pill.clicked.connect(self.theme_menu.toggle)
         hbox.addWidget(self.theme_pill, 0, Qt.AlignVCenter)
 
-        # пилюли не сжимаются (иначе текст режется многоточием)
-        for _b in (self.pill, self.dl_pill, self.viz_pill, self.bg_pill,
-                   self.theme_pill):
-            _b.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-
         hbox.addStretch(1)
         slogan = QLabel("Хорошая музыка делает день лучше ✦")
         slogan.setObjectName("slogan")
         self.slogan = slogan
         hbox.addWidget(slogan, 0, Qt.AlignVCenter)
+
+        # часы в правом углу шапки (шрифт как у виджета часов Noctalia)
+        hbox.addSpacing(14)
+        self.clock = QLabel()
+        self.clock.setObjectName("clock")
+        self.clock.setToolTip("Текущее время")
+        self.clock.setFont(QFont(CLOCK_FONT, 40))
+        hbox.addWidget(self.clock, 0, Qt.AlignVCenter)
+        self._tick_clock()
+        self._clock_timer = QTimer(self)
+        self._clock_timer.setInterval(1000)
+        self._clock_timer.timeout.connect(self._tick_clock)
+        self._clock_timer.start()
+
         root.addWidget(header)
 
         # --- центр: только визуализатор (место колонок освобождено) ---
@@ -736,6 +803,10 @@ class MainWindow(QMainWindow):
                      self.bg_menu, self.theme_menu):
             menu.update()
 
+    def _tick_clock(self):
+        """Обновляет часы в шапке (раз в секунду, меняется раз в минуту)."""
+        self.clock.setText(QTime.currentTime().toString(CLOCK_FORMAT))
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         # на узком окне прячем слоган и подпись, чтобы пилюлям хватало места
@@ -769,6 +840,8 @@ class MainWindow(QMainWindow):
     def _rebuild_menu(self):
         """Пересобирает меню: станции + разделитель + добавить/удалить."""
         self.menu.clear()
+        # первые строки (станции) можно таскать мышью — остальные служебные
+        self.menu.drag_rows = len(self.stations)
         for st in self.stations:
             act = self.menu.addAction(
                 "%s — %s" % (st["name"], st["description"] or "Radio"))
@@ -789,6 +862,16 @@ class MainWindow(QMainWindow):
         else:
             act_del = self.menu.addAction("✕  Удалить станцию")
             act_del.setEnabled(False)
+
+    def _on_station_reordered(self, src, dst):
+        """Строку перетащили в меню: dst — индекс, куда вставить."""
+        if not (0 <= src < len(self.stations)) or src == dst:
+            return
+        st = self.stations.pop(src)
+        self.stations.insert(dst - 1 if dst > src else dst, st)
+        save_stations(self.stations)
+        self._rebuild_menu()
+        self.menu.refresh()
 
     def _selected_station(self):
         """Станция, показанная в пилюле (по игре или по QSettings)."""
@@ -1036,12 +1119,14 @@ class MainWindow(QMainWindow):
         self._dl_proc.readyRead.connect(self._on_dl_output)
         self._dl_proc.finished.connect(self._on_dl_finished)
         # ищем трек на YouTube, качаем аудио, конвертируем в mp3
+        # (без --no-progress: он глушит именно строки с процентами)
         args = [
-            _YTDLP, "-x", "--audio-format", "mp3", "--no-progress",
-            "--newline", "--no-playlist",
+            _YTDLP, "-x", "--audio-format", "mp3", "--newline",
+            "--no-playlist", "--no-colors",
             "-o", os.path.join(DL_DIR, "%(title).120B.%(ext)s"),
             "ytsearch1:" + self._track,
         ]
+        self._dl_buf = ""
         self._dl_proc.start(args[0], args[1:])
         self.dl_progress.setValue(0)
         self.dl_progress.show()
@@ -1049,15 +1134,27 @@ class MainWindow(QMainWindow):
         self.btn_save.setEnabled(True)
 
     def _on_dl_output(self):
+        """Читаем вывод yt-dlp и обновляем полосу процентами.
+
+        readyRead отдаёт куски, а не строки: последняя строка может прийти
+        недописанной, поэтому хвост держим в буфере до следующего чтения.
+        """
         data = bytes(self._dl_proc.readAllStandardOutput()).decode(
             "utf-8", "replace")
-        m = _DL_PCT_RE.findall(data)
-        if m:
-            self.dl_progress.setValue(int(float(m[-1])))
+        text = self._dl_buf + data
+        *lines, self._dl_buf = text.split("\n")
+        for line in lines:
+            m = _DL_PCT_RE.search(line)
+            if not m:
+                continue
+            pct = float(m.group(1))
+            self.dl_progress.setValue(int(pct))
+            self.dl_progress.setFormat("%.0f%%" % pct)
 
     def _on_dl_finished(self, code, status):
         proc = self._dl_proc
         self._dl_proc = None
+        self._dl_buf = ""
         self.dl_progress.hide()
         proc.deleteLater()
         if code == 0:

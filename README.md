@@ -130,8 +130,8 @@ python3 ~/radiofm/smoke_test.py
   станции перетаскиваются мышью за строку, новый порядок сразу пишется
   в `stations.json`;
 - **«Скачанные»** — плеер локальной музыки (см. ниже);
-- **режим визуализатора** — Glowing Wave, Ring, Bars, Fireflies, Liquid, Galaxy,
-  Oscilloscope, Nebulous;
+- **режим визуализатора** — Glowing Wave, Ring, Bars, Spectrum, Fireflies,
+  Liquid, Galaxy, Warp, Oscilloscope;
 - **фон** — картинки из папки `backgrounds/`;
 - **тема** — встроенные и свои темы из `themes/`.
 
@@ -228,7 +228,7 @@ radio/theme.py        темы: роли цветов, встроенные и �
 radio/stations.py     работа со станциями (stations.json)
 radio/tap.py          AudioTap: пассивный перехват звука (monitor-порт sink'а)
 radio/tracks.py       длительности локальных треков (mutagen, кэш)
-radio/viz/            базовый класс + 8 режимов визуализации
+radio/viz/            базовый класс + 9 режимов визуализации
 stations.json         список станций (17)
 themes/               темы (встроенные в коде + 24 JSON из Noctalia)
 assets/               иконка окна, эмблема, вордмарк
