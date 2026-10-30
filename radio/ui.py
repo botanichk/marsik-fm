@@ -778,6 +778,9 @@ class MainWindow(QMainWindow):
     def _icon(self, standard, size=64):
         """Стандартная иконка Qt, перекрашенная в цвет текста темы."""
         pm = self.style().standardIcon(standard).pixmap(size, size)
+        # холст ниже создаётся с dpr=1: без сброса Qt нарисует иконку в четверть
+        # холста на экранах с масштабом 2 и символы в кнопках будут мелкие
+        pm.setDevicePixelRatio(1.0)
         out = QPixmap(pm.size())
         out.fill(Qt.transparent)
         p = QPainter(out)
