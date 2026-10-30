@@ -42,16 +42,16 @@
     "url": "https://ice1.somafm.com/indiepop-128-mp3"
   },
   {
-    "id": "bootliquor",
-    "name": "Boot Liquor",
-    "description": "Americana Roots music for the masses.",
-    "url": "https://ice1.somafm.com/bootliquor-128-mp3"
-  },
-  {
     "id": "sonicuniverse",
     "name": "Sonic Universe",
     "description": "Avant-garde jazz from around the world.",
     "url": "https://ice1.somafm.com/sonicuniverse-128-mp3"
+  },
+  {
+    "id": "bootliquor",
+    "name": "Boot Liquor",
+    "description": "Americana Roots music for the masses.",
+    "url": "https://ice1.somafm.com/bootliquor-128-mp3"
   },
   {
     "id": "181.fm_—_front_porch",

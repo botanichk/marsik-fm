@@ -14,12 +14,16 @@ def load_stations(path=DEFAULT_PATH):
     stations = []
     for entry in data:
         if isinstance(entry, dict) and entry.get("name") and entry.get("url"):
-            stations.append({
+            station = {
                 "id": str(entry.get("id") or entry["name"]),
                 "name": str(entry["name"]),
                 "description": str(entry.get("description") or ""),
                 "url": str(entry["url"]),
-            })
+            }
+            # запасные https-адреса для мобильной версии — не терять при сохранении
+            if isinstance(entry.get("urls"), list) and entry["urls"]:
+                station["urls"] = [str(u) for u in entry["urls"] if u]
+            stations.append(station)
     return stations
 
 

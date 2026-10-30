@@ -135,8 +135,9 @@ let favs = new Set(load('fav', []));
 let order = load('order', []);          // свой порядок (id)
 let good = load('good', {});            // id → последний рабочий адрес
 let tab = load('tab', 'all');
-const dead = new Set();                 // не ответили в эту сессию (не сохраняем:
-                                        // вечером работает, утром нет — и наоборот)
+const dead = new Map();                 // id → причина ('down' | 'nohttps'); только на
+                                        // сессию: вечером работает, утром нет — и наоборот
+const UP = new Set();                   // адреса, которые мы сами «подняли» с http до https
 
 // ---------- адреса потока ----------
 function candidates(st) {
@@ -146,12 +147,14 @@ function candidates(st) {
   for (const raw of base) {
     let u;
     try { u = new URL(raw); } catch (e) { continue; }
+    let upgraded = false;
     if (location.protocol === 'https:' && u.protocol === 'http:') {
       // http-поток на https-странице браузер блокирует: пробуем https-версию.
       // На IP-адрес сертификата не бывает — такой поток на телефоне не сыграет.
       if (/^\d+\.\d+\.\d+\.\d+$/.test(u.hostname)) continue;
-      u.protocol = 'https:';
+      u.protocol = 'https:'; upgraded = true;
     }
+    if (upgraded) UP.add(u.href);
     add(u.href);
     // у SomaFM несколько зеркал: если одно перегружено — пробуем другое
     if (/^ice\d+\.somafm\.com$/.test(u.hostname)) {
@@ -215,8 +218,10 @@ function paintRow(li) {
   li.classList.toggle('nophone', nophone);
   li.classList.toggle('dead', nophone || dead.has(st.id));
   const badge = li.querySelector('.badge');
-  badge.textContent = nophone ? 'только http — на телефоне не играет'
-                    : dead.has(st.id) ? 'не отвечает' : '';
+  const why = dead.get(st.id);
+  badge.textContent = nophone ? 'только http (адрес без домена) — на телефоне не играет'
+                    : why === 'nohttps' ? 'нет https-версии — на телефоне не играет'
+                    : why ? 'не отвечает' : '';
 }
 function paintAll() { for (const li of LIST.children) paintRow(li); }
 
@@ -346,7 +351,14 @@ function failover() { clearTimers(); S.idx++; attempt(); }
 
 function giveUp() {
   if (!cur) return;
-  dead.add(cur.id); paintAll();
+  // все адреса — наши https-версии http-потока: значит, https у станции просто нет
+  if (S.cands.length && S.cands.every((u) => UP.has(u))) {
+    dead.set(cur.id, 'nohttps'); paintAll();
+    S.intent = false;
+    setState('нет https-версии — на телефоне не играет');
+    return;
+  }
+  dead.set(cur.id, 'down'); paintAll();
   if (S.retry < 4) {                              // эфир мог просто моргнуть
     S.retry++;
     setState('станция не отвечает, повторяю…');
@@ -444,7 +456,11 @@ CHECK.addEventListener('click', async () => {
     while (queue.length) {
       const st = queue.shift();
       const ok = await probe(st);
-      if (ok) dead.delete(st.id); else { dead.add(st.id); bad++; }
+      if (ok) dead.delete(st.id);
+      else {
+        const l = candidates(st);
+        dead.set(st.id, l.length && l.every((u) => UP.has(u)) ? 'nohttps' : 'down'); bad++;
+      }
       done++; updateHint('Проверяю… ' + done + ' из ' + stations.length);
       paintAll();
     }
