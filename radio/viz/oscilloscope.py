@@ -1,14 +1,11 @@
-"""Oscilloscope — настоящая форма волны для Marsik FM.
+"""Oscilloscope — осциллограф с послесвечением для Marsik FM.
 
-Рисует реальные срезы PCM из аудио-тапа (сигнал set_wave, -1..1), а не
-процедурную синусоиду: каждая точка — настоящий сэмпл потока. Несколько
-призрачных копий сдвинутых по фазе дают послесвечение (как фосфорный
-экран осциллографа), яркость — от AGC-энергии.
-
-Когда данных нет (idle/пауза) — спокойная синусоида с затуханием, честно
-помеченная как декоративная, за реакцию её не выдаём.
-
-Палитра Marsik: cyan → blue → violet → magenta.
+Рисует настоящие срезы PCM из аудио-тапа (set_wave, -1..1). Размах
+подстраивается автоматически, чтобы линия всегда занимала экран: тихие
+треки не превращаются в ровную линию. Слой следов (feedback) даёт
+фосфорное послесвечение, второй трейс идёт со сдвигом фазы другим цветом,
+на ударе баса сетка вспыхивает. Без сигнала — спокойная синусоида, честно
+декоративная. Цвета — из темы.
 """
 import math
 import time
@@ -19,96 +16,106 @@ from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QPen
 from ..theme import manager as _themes
 from .base import Visualizer
 
-_GHOSTS = 3           # призрачных копии (послесвечение фосфора)
-_SIGNAL_TTL = 0.5     # сек: свежий срез формы волны
+_SIGNAL_TTL = 0.5
 
 
 class Oscilloscope(Visualizer):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._wave_time = 0.0     # время последнего среза волны
-        self._sweep = 0.0         # плавный разгон луча в idle
+        self._wave_time = 0.0
+        self._sweep = 0.0
+        self._gain = 2.0
 
     def set_wave(self, wave):
         super().set_wave(wave)
         if wave:
             self._wave_time = time.monotonic()
 
+    def _trace(self, pts, w, mid, amp, shift, gain):
+        n = len(pts)
+        path = QPainterPath()
+        step = max(1, n // 200)
+        first = True
+        prev = None
+        for i in range(0, n, step):
+            j = (i + shift) % n
+            x = w * i / (n - 1)
+            y = mid - max(-1.0, min(1.0, pts[j] * gain)) * amp
+            if first:
+                path.moveTo(x, y)
+                first = False
+            else:
+                path.quadTo(prev[0], prev[1], (prev[0] + x) / 2, (prev[1] + y) / 2)
+            prev = (x, y)
+        return path
+
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         w, h = float(self.width()), float(self.height())
-        t, env = self._t, self._env
         th = _themes.current
-
+        env = self._env
         bg = QLinearGradient(0, 0, 0, h)
         bg.setColorAt(0.0, th.q(th.viz_bg))
         bg.setColorAt(1.0, th.q(th.viz_bg_dark))
         self._draw_bg(p, bg)
 
-        # сетка осциллографа (лёгкая, декоративная — как на приборе)
-        gc = (th.stops[1][1][0] // 3, th.stops[1][1][1] // 3,
-              th.stops[1][1][2] // 3)
-        p.setPen(QPen(th.q(gc, 70), 1))
+        # сетка вспыхивает на ударе
+        gc = th.stops[1][1]
+        p.setPen(QPen(th.q(gc, int(26 + 70 * self._beat)), 1))
         step = max(24, int(w // 16))
         for x in range(step, int(w), step):
             p.drawLine(int(x), 0, int(x), int(h))
         for y in range(step, int(h), step):
             p.drawLine(0, int(y), int(w), int(y))
 
-        live = time.monotonic() - self._wave_time < _SIGNAL_TTL
+        live = time.monotonic() - self._wave_time < _SIGNAL_TTL and self._wave
         mid = h * 0.5
-        amp = h * 0.36
+        amp = h * 0.40
 
+        img, q = self._fb_begin(0.80 if live else 0.90, zoom=1.0)
         grad = QLinearGradient(0, 0, w, 0)
         for pos, col in th.stops:
-            grad.setColorAt(pos, QColor(*col))
+            grad.setColorAt(pos, th.q(col))
+        q.setCompositionMode(QPainter.CompositionMode_Plus)
 
-        if live and self._wave:
-            # НАСТОЯЩАЯ форма волны: точки — реальные сэмплы потока
+        if live:
             pts = self._wave
+            peak = max(0.02, max(abs(v) for v in pts))
+            target = max(1.0, min(9.0, 0.9 / peak))
+            self._gain += (target - self._gain) * min(1.0, self._dt * 3.0)
+            g = self._gain
+            thick = 2.4 + 2.6 * self._bass + 2.0 * self._beat
             n = len(pts)
-            # яркость от энергии, но форма — всегда реальная
-            base_a = 0.55 + 0.45 * env
-            ghosts = [
-                (0.0, 1.0, 2.6, 0.90),    # (сдвиг индекса, масштаб y, ширина, альфа)
-                (-0.012, 0.82, 6.0, 0.22),
-                (-0.026, 0.65, 12.0, 0.10),
-            ]
-            for dx, ky, pen_w, alpha in ghosts[:_GHOSTS]:
-                path = QPainterPath()
-                first = True
-                for i in range(n):
-                    j = i + int(dx * n)
-                    if j < 0 or j >= n:
-                        continue
-                    x = w * i / (n - 1)
-                    y = mid - max(-1.0, min(1.0, pts[j] * ky)) * amp
-                    if first:
-                        path.moveTo(x, y)
-                        first = False
-                    else:
-                        path.lineTo(x, y)
-                p.setPen(QPen(grad, pen_w, Qt.SolidLine, Qt.RoundCap))
-                p.setOpacity(min(1.0, alpha * base_a + (0.12 if dx else 0)))
-                p.drawPath(path)
-            p.setOpacity(1.0)
+            main = self._trace(pts, w, mid, amp, 0, g)
+            ghost = self._trace(pts, w, mid, amp * 0.8, n // 12, g)
+            # второй трейс — зеркально и другим концом градиента
+            grad2 = QLinearGradient(w, 0, 0, 0)
+            for pos, col in th.stops:
+                grad2.setColorAt(pos, th.q(col))
+            q.setBrush(Qt.NoBrush)
+            q.setPen(QPen(grad2, thick * 0.8, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            q.setOpacity(0.45)
+            q.drawPath(ghost)
+            for width, alpha in ((thick * 4.0, 0.10), (thick * 1.8, 0.35), (thick * 0.7, 0.95)):
+                q.setPen(QPen(grad, width, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+                q.setOpacity(alpha)
+                q.drawPath(main)
+            q.setOpacity(1.0)
         else:
-            # idle: декоративная синусоида (не выдаём за реакцию)
             self._sweep += 0.03 + 0.04 * env
             path = QPainterPath()
-            fade = 0.30 if self._active else 0.18
-            x = 0.0
-            step_px = max(6, w // 90)
+            x, step_px = 0.0, max(6, w // 90)
             while x <= w:
-                y = mid + amp * 0.45 * math.sin(
-                    2 * math.pi * 2.2 * x / w + self._sweep)
+                y = mid + amp * 0.45 * math.sin(2 * math.pi * 2.2 * x / w + self._sweep)
                 if x == 0:
                     path.moveTo(x, y)
                 else:
                     path.lineTo(x, y)
                 x += step_px
-            p.setPen(QPen(grad, 1.6, Qt.SolidLine, Qt.RoundCap))
-            p.setOpacity(fade)
-            p.drawPath(path)
-            p.setOpacity(1.0)
+            q.setBrush(Qt.NoBrush)
+            q.setPen(QPen(grad, 1.8, Qt.SolidLine, Qt.RoundCap))
+            q.setOpacity(0.30 if self._active else 0.18)
+            q.drawPath(path)
+            q.setOpacity(1.0)
+        self._fb_end(p, img, q)

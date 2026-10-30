@@ -13,7 +13,7 @@ import math
 import time
 
 from PySide6.QtCore import QElapsedTimer, Qt, QTimer, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QImage, QPainter
 from PySide6.QtWidgets import QWidget
 
 _SIGNAL_TTL = 1.2            # сек: без данных дольше — считаем idle
@@ -32,9 +32,13 @@ class Visualizer(QWidget):
         self._baseline = 0.14      # медленная база уровня (AGC)
         self._bands = [0.0] * 8    # 8 грубых полос (для старых режимов)
         self._fine = [0.0] * 32    # 32 полосы спектра (низ → верх)
-        self._smooth = [0.0] * 32  # они же, нормированные и сглаженные
+        self._fine64 = [0.0] * 64  # те же данные в полном разрешении (64)
+        self._smooth = [0.0] * 32  # 32 полосы: нормированные и сглаженные
+        self._smooth64 = [0.0] * 64  # то же в полном разрешении
+        self._dt = 0.016           # длительность последнего кадра
+        self._fb = None            # буфер следов прошлого кадра
         self._ref = 0.5            # AGC по спектру: медленный максимум
-        self._bandref = [0.3] * 32 # то же, но для каждой полосы отдельно
+        self._bandref = [0.3] * 64 # то же, но для каждой полосы отдельно
         self._bass = 0.0           # сглаженная энергия баса 0..1
         self._bass_avg = 0.15      # медленная база баса (для детектора)
         self._beat = 0.0           # импульс удара 0..1 (затухает)
@@ -61,19 +65,32 @@ class Visualizer(QWidget):
         self._sig = max(0.0, min(1.0, float(level)))
         self._sig_time = time.monotonic()
 
+    @staticmethod
+    def _resample(vals, m):
+        """Список любой длины → ровно m значений (усреднение или интерполяция)."""
+        n = len(vals)
+        if n == m:
+            return list(vals)
+        if n > m and n % m == 0:
+            k = n // m
+            return [sum(vals[i * k:(i + 1) * k]) / k for i in range(m)]
+        out = []
+        for i in range(m):
+            x = i * (n - 1) / max(1, m - 1)
+            lo = int(x)
+            hi = min(n - 1, lo + 1)
+            f = x - lo
+            out.append(vals[lo] * (1 - f) + vals[hi] * f)
+        return out
+
     def set_bands(self, bands):
-        """Полосы спектра 0..1 (низ → верх); обычно 32, сворачиваем в 8."""
+        """Полосы спектра 0..1 (низ → верх); тап даёт 64, сворачиваем в 32 и 8."""
         if not bands:
             return
         bands = list(bands)
-        self._fine = bands
-        n = len(bands)
-        if n >= 8 and n % 8 == 0:
-            k = n // 8
-            self._bands = [sum(bands[i * k:(i + 1) * k]) / k
-                           for i in range(8)]
-        else:
-            self._bands = (bands + [0.0] * 8)[:8]
+        self._fine64 = self._resample(bands, 64)
+        self._fine = self._resample(bands, 32)
+        self._bands = self._resample(bands, 8)
 
     def set_wave(self, wave):
         """Срез сырой формы волны -1..1 (для осциллографа)."""
@@ -126,6 +143,7 @@ class Visualizer(QWidget):
         dt = min(0.1, now - self._last) if self._last else 0.016
         self._last = now
         self._t = now
+        self._dt = dt
 
         live = (self._active
                 and time.monotonic() - self._sig_time < _SIGNAL_TTL)
@@ -155,10 +173,8 @@ class Visualizer(QWidget):
 
     def _analyze(self, dt, now, live):
         """Спектр: нормировка, сглаживание и детектор ударов по басу."""
-        n = len(self._smooth)
-        fine = self._fine if live else [0.0] * n
-        if len(fine) != n:
-            fine = (list(fine) + [0.0] * n)[:n]
+        n = len(self._smooth64)
+        fine = self._fine64 if live else [0.0] * n
         # AGC: медленный максимум — картинка полная на любой громкости
         self._ref = max(0.35, self._ref - dt * 0.05, max(fine))
         for i in range(n):
@@ -168,11 +184,14 @@ class Visualizer(QWidget):
             self._bandref[i] = br
             den = max(0.22, 0.4 * self._ref + 0.6 * br)
             tgt = min(1.0, fine[i] / den)
-            cur = self._smooth[i]
+            cur = self._smooth64[i]
             rate = 28.0 if tgt > cur else 7.0       # атака быстрее спада
-            self._smooth[i] = cur + (tgt - cur) * min(1.0, dt * rate)
+            self._smooth64[i] = cur + (tgt - cur) * min(1.0, dt * rate)
+        # 32 полосы для режимов, которым хватает такой детализации
+        sm = self._smooth64
+        self._smooth = [(sm[2 * i] + sm[2 * i + 1]) / 2.0 for i in range(32)]
 
-        # бас = нижние 4 бина (≈ 0–350 Гц)
+        # бас = нижние 4 бина из 64 (≈ 0–350 Гц)
         bass = sum(fine[:4]) / 4.0
         self._bass += (bass - self._bass) * min(1.0, dt * 18.0)
         self._bass_avg += (bass - self._bass_avg) * min(1.0, dt * 1.5)
@@ -181,6 +200,44 @@ class Visualizer(QWidget):
             self._beat = 1.0
             self._last_beat = now
         self._beat = max(0.0, self._beat - dt * 4.5)
+
+    # ---------- следы (как «feedback» в WinAmp/MilkDrop) ----------
+
+    def _fb_begin(self, fade=0.9, zoom=1.0, rot=0.0):
+        """Начинает кадр с затухающим следом прошлого: возвращает (буфер, painter).
+
+        fade — во сколько раз темнеет след за 1/60 с; zoom — масштаб следа
+        за тот же интервал (>1 — «летим вперёд»); rot — поворот в радианах.
+        Всё нормируется на реальное dt, поэтому скорость не зависит от FPS.
+        """
+        dpr = self.devicePixelRatioF()
+        w, h = self.width(), self.height()
+        new = QImage(max(1, int(w * dpr)), max(1, int(h * dpr)),
+                     QImage.Format_ARGB32_Premultiplied)
+        new.setDevicePixelRatio(dpr)
+        new.fill(Qt.transparent)
+        q = QPainter(new)
+        q.setRenderHint(QPainter.Antialiasing)
+        q.setRenderHint(QPainter.SmoothPixmapTransform)
+        old = self._fb
+        if old is not None and old.size() == new.size():
+            k = max(0.0, self._dt * 60.0)
+            q.setOpacity(fade ** k)
+            q.translate(w / 2.0, h / 2.0)
+            q.rotate(math.degrees(rot * k))
+            sc = zoom ** k
+            q.scale(sc, sc)
+            q.translate(-w / 2.0, -h / 2.0)
+            q.drawImage(0, 0, old)
+            q.resetTransform()
+            q.setOpacity(1.0)
+        return new, q
+
+    def _fb_end(self, p, new, q):
+        """Заканчивает кадр: запоминает буфер и выводит его в виджет."""
+        q.end()
+        self._fb = new
+        p.drawImage(0, 0, new)
 
     def _update(self, dt, now):
         """Хук для наследников со своей логикой анимации."""
