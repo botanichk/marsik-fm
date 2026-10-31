@@ -47,6 +47,7 @@ from .viz.oscilloscope import Oscilloscope
 from .viz.ring import Ring
 from .viz.bars import Bars
 from .viz.fireflies import Fireflies
+from .viz.dots import Dots
 from .viz.liquid import Liquid
 
 # папка для треков: XDG «Музыка» (~/.config/user-dirs.dirs, локаль-независимо)
@@ -75,7 +76,7 @@ def _bg_label(name):
 
 
 _VIZ_NAMES = ["Glowing Wave", "Ring", "Bars", "Spectrum", "Fireflies",
-              "Liquid", "Galaxy", "Warp", "Oscilloscope"]
+              "Fireflies Dots", "Liquid", "Galaxy", "Warp", "Oscilloscope"]
 
 # шрифт часов — как у виджета часов в Noctalia, но плотнее: ExtraLight
 # (тот, что в виджете) на тёмном фоне читается плохо, SemiBold держит
@@ -556,7 +557,7 @@ class MainWindow(QMainWindow):
         viz_row.setSpacing(12)
         self.viz_stack = QStackedWidget()
         self.viz_modes = [GlowingWave(), Ring(), Bars(), Spectrum(),
-                          Fireflies(), Liquid(), Galaxy(), Warp(),
+                          Fireflies(), Dots(), Liquid(), Galaxy(), Warp(),
                           Oscilloscope()]
         for v in self.viz_modes:
             self.viz_stack.addWidget(v)
