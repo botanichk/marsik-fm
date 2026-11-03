@@ -353,14 +353,14 @@ function makeTile(st) {
   wrap.append(inner);
   paintTile(front, st);
   paintBack(back, st);
-  // переворот карточки при касании (работает на тач и мыши)
+  // переворот карточки при касании (pointerdown работает на тач и мыши)
   const toggleFlip = (e) => {
+    e.preventDefault();
     e.stopPropagation();
     if (e.target.closest('button, .grip')) return;
     wrap.classList.toggle('flipped');
   };
   wrap.addEventListener('pointerdown', toggleFlip);
-  wrap.addEventListener('touchstart', toggleFlip, { passive: false });
   return wrap;
 }
 function refreshCurrentTile() {
