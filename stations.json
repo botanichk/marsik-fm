@@ -1,33 +1,9 @@
 [
   {
-    "id": "groovesalad",
-    "name": "Groove Salad",
-    "description": "A nicely chilled plate of ambient/downtempo beats and grooves.",
-    "url": "https://ice1.somafm.com/groovesalad-128-mp3"
-  },
-  {
-    "id": "deepspaceone",
-    "name": "Deep Space One",
-    "description": "Deep ambient electronic and space music.",
-    "url": "https://ice1.somafm.com/deepspaceone-128-mp3"
-  },
-  {
-    "id": "lush",
-    "name": "Lush",
-    "description": "Sensual vocals and ambient grooves.",
-    "url": "https://ice1.somafm.com/lush-128-mp3"
-  },
-  {
-    "id": "thetrip",
-    "name": "The Trip",
-    "description": "Psychedelic/progressive space rock.",
-    "url": "https://ice1.somafm.com/thetrip-128-mp3"
-  },
-  {
-    "id": "secretagent",
-    "name": "Secret Agent",
-    "description": "The soundtrack for your shady dealings.",
-    "url": "https://ice1.somafm.com/secretagent-128-mp3"
+    "id": "mixstream_radio",
+    "name": "MixStream Radio",
+    "description": "",
+    "url": "https://radio.mixstream.nl/boogie.mp3"
   },
   {
     "id": "beatblender",
@@ -90,15 +66,27 @@
     "url": "https://samcloud.spacial.com/api/listen?sid=93462&m=sc"
   },
   {
-    "id": "mixstream_radio",
-    "name": "MixStream Radio",
-    "description": "",
-    "url": "https://radio.mixstream.nl/boogie.mp3"
-  },
-  {
     "id": "radio_idl",
     "name": "Radio IDL",
     "description": "",
     "url": "http://mp3.radioidl.com:8002/ridl.mp3"
+  },
+  {
+    "id": "secretagent",
+    "name": "Secret Agent",
+    "description": "The soundtrack for your shady dealings.",
+    "url": "https://ice1.somafm.com/secretagent-128-mp3"
+  },
+  {
+    "id": "thetrip",
+    "name": "The Trip",
+    "description": "Psychedelic/progressive space rock.",
+    "url": "https://ice1.somafm.com/thetrip-128-mp3"
+  },
+  {
+    "id": "lush",
+    "name": "Lush",
+    "description": "Sensual vocals and ambient grooves.",
+    "url": "https://ice1.somafm.com/lush-128-mp3"
   }
 ]
