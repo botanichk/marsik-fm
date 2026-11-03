@@ -5,155 +5,303 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Marsik FM</title>
 <link rel="manifest" href="manifest.webmanifest">
-<meta name="theme-color" content="#0d0f14">
+<meta name="theme-color" content="#0f0c0a" id="metaTheme">
 <style>
-  :root { color-scheme: dark; --acc: #e8743b; --muted: #8b93a4; }
+  :root {
+    --bg: #0f0c0a; --bg2: #1c1714; --bg3: #29221d; --text: #f3e9dc; --muted: #9c8f82;
+    --acc: #e08a3c; --on-acc: #1b1208; --line: #ffffff1c; --warn: #d9a35b; --bad: #e5645a;
+    --tabs-h: 66px;
+  }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
   body {
-    margin: 0; background: #0d0f14; color: #e7e9ee;
+    margin: 0; background: var(--bg); color: var(--text); overflow: hidden;
     font: 16px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    padding: 0 0 calc(104px + env(safe-area-inset-bottom));
   }
-  header {
-    position: sticky; top: 0; z-index: 2;
-    padding: 12px 16px 8px; padding-top: calc(12px + env(safe-area-inset-top));
-    background: #0d0f14ee; backdrop-filter: blur(8px);
-    border-bottom: 1px solid #1c2029;
+  [hidden] { display: none !important; }
+  button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+  svg { width: 24px; height: 24px; display: block; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  svg.fill { fill: currentColor; stroke: none; }
+
+  /* ---------- экраны ---------- */
+  .view {
+    position: fixed; inset: 0; overflow-y: auto; display: none;
+    padding: calc(14px + env(safe-area-inset-top)) 16px
+             calc(var(--tabs-h) + 24px + env(safe-area-inset-bottom));
   }
-  .brand { display: flex; gap: 12px; align-items: center; }
-  header img { width: 40px; height: 40px; border-radius: 10px; }
-  header h1 { margin: 0; font-size: 18px; letter-spacing: .06em; }
-  header p { margin: 2px 0 0; font-size: 11px; color: #7f8798; letter-spacing: .12em; }
-  nav { display: flex; gap: 8px; margin-top: 10px; }
-  nav button.tab {
-    min-width: 0; flex: 1; padding: 9px 10px; border-radius: 999px;
-    background: #151922; color: var(--muted); font-size: 14px;
-  }
-  nav button.tab.on { background: #2a1f1c; color: #ffb48f; box-shadow: inset 0 0 0 1px var(--acc); }
-  nav button#check { min-width: 0; width: 44px; padding: 9px 0; border-radius: 999px; background: #151922; }
-  nav button#check.busy { color: var(--acc); }
-  nav button#edit { min-width: 44px; padding: 9px 14px; border-radius: 999px; background: #151922; color: var(--muted); font-size: 14px; }
-  nav button#edit.on { background: #2a1f1c; color: #ffb48f; box-shadow: inset 0 0 0 1px var(--acc); }
-  ul { list-style: none; margin: 0; padding: 8px 8px 0; }
-  li .del {
-    flex: none; width: 44px; height: 44px; min-width: 0; padding: 0;
-    background: none; color: #e5645a; font-size: 22px; line-height: 1;
-  }
-  #hiddenBox { margin: 18px 16px 0; padding-top: 12px; border-top: 1px dashed #2a3040; }
-  #hiddenBox h2 { margin: 0 0 6px; font-size: 13px; font-weight: 600; color: var(--muted); letter-spacing: .04em; }
-  #hiddenBox .hrow { display: flex; align-items: center; gap: 10px; padding: 6px 0; color: #9aa2b3; }
-  #hiddenBox .hrow span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  #hiddenBox .hrow button { min-width: 0; padding: 8px 14px; font-size: 14px; }
-  li {
-    display: flex; align-items: center; gap: 6px;
-    padding: 4px; margin: 6px 0; border-radius: 14px;
-    background: #151922; border: 1px solid transparent; position: relative;
-  }
-  li:active { background: #1b2130; }
-  li.on { border-color: var(--acc); background: #1d1a1c; }
-  li.dead { opacity: .55; }
-  li.drag { z-index: 4; background: #222a3a; box-shadow: 0 10px 28px #000a; border-color: #3a4560; opacity: 1; }
-  li .txt { min-width: 0; flex: 1; padding: 8px 6px; }
-  li b { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  li small { display: block; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  li .badge { display: none; font-size: 11px; color: #d9a35b; margin-top: 2px; }
-  li.nophone .badge, li.dead .badge { display: block; }
-  li .star {
-    flex: none; width: 44px; height: 44px; min-width: 0; padding: 0;
-    background: none; color: #4a5365; font-size: 24px; line-height: 1;
-  }
-  li .star.on { color: #ffc24a; }
-  li .grip {
-    flex: none; width: 44px; height: 44px; display: grid; place-items: center;
-    color: #5b6578; touch-action: none; cursor: grab;
-  }
-  li .grip svg { width: 18px; height: 18px; fill: currentColor; pointer-events: none; }
-  footer {
-    position: fixed; left: 0; right: 0; bottom: 0; z-index: 3;
-    display: flex; gap: 8px; align-items: center;
-    padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
-    background: #11141bee; backdrop-filter: blur(10px);
-    border-top: 1px solid #1c2029;
-  }
-  footer[hidden] { display: none; }
-  footer .txt { flex: 1; min-width: 0; }
-  footer b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  footer small { color: var(--muted); }
-  button {
-    font: inherit; color: #e7e9ee; background: #232a38; border: 0;
-    border-radius: 12px; padding: 11px 14px; min-width: 76px;
-  }
-  button:active { background: #2e3648; }
-  footer button.sq { min-width: 44px; padding: 11px 0; width: 44px; }
-  #hint { margin: 10px 16px 0; color: #6e7688; font-size: 13px; }
+  .view.on { display: block; }
+  body.has-mini .view:not(#v-player) { padding-bottom: calc(var(--tabs-h) + 92px + env(safe-area-inset-bottom)); }
+  .head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; min-height: 44px; }
+  .head h1 { margin: 0; flex: 1; text-align: center; font-size: 22px; font-weight: 600; }
+  .head .side { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; color: var(--muted); }
+  .head .side.on { color: var(--acc); background: color-mix(in srgb, var(--acc) 16%, transparent); }
+  .head .side.busy svg { animation: spin 1s linear infinite; color: var(--acc); }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .sec { display: flex; align-items: center; gap: 12px; padding: 10px 4px; margin-top: 4px; color: var(--muted); font-size: 14px; border-bottom: 1px solid var(--line); }
+  .sec svg { color: var(--acc); width: 22px; height: 22px; }
+  .hint { color: var(--muted); font-size: 13px; margin: 10px 4px; }
+
+  /* ---------- список станций ---------- */
+  ul { list-style: none; margin: 0; padding: 0; }
+  li.row { display: flex; align-items: center; gap: 12px; padding: 10px 2px; border-bottom: 1px solid var(--line); position: relative; background: var(--bg); }
+  li.row:active { background: var(--bg2); }
+  li.row.dead { opacity: .55; }
+  li.row.drag { z-index: 5; background: var(--bg3); box-shadow: 0 10px 28px #000a; border-radius: 12px; opacity: 1; }
+  .tile { flex: none; width: 56px; height: 56px; border-radius: 10px; overflow: hidden; display: grid; place-items: center; font-weight: 700; font-size: 20px; color: #fff; letter-spacing: .02em; position: relative; }
+  .tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  li.row .txt { flex: 1; min-width: 0; }
+  li.row b { display: block; font-weight: 500; font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  li.row.now b { font-weight: 700; color: var(--acc); }
+  li.row small { display: block; color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  li.row .badge { display: none; font-size: 12px; color: var(--warn); }
+  li.row.nophone .badge, li.row.dead .badge { display: block; }
+  .ibtn { flex: none; width: 44px; height: 44px; display: grid; place-items: center; color: var(--acc); border-radius: 50%; }
+  .ibtn.del { color: var(--bad); }
+  .grip { flex: none; width: 40px; height: 44px; display: grid; place-items: center; color: var(--muted); touch-action: none; cursor: grab; }
+  .grip svg { width: 18px; height: 18px; fill: currentColor; stroke: none; }
+  #hiddenBox, .card { background: var(--bg2); border-radius: 16px; padding: 14px 16px; margin: 14px 0; }
+  .hrow { display: flex; align-items: center; gap: 10px; padding: 8px 0; color: var(--muted); }
+  .hrow span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .btn { background: var(--bg3); border-radius: 12px; padding: 10px 16px; }
+  .btn.acc { background: var(--acc); color: var(--on-acc); font-weight: 600; }
+
+  /* ---------- плеер ---------- */
+  #v-player { background: radial-gradient(120% 55% at 50% 0%, color-mix(in srgb, var(--acc) 16%, var(--bg)) 0%, var(--bg) 70%); }
+  #v-player { padding-bottom: calc(var(--tabs-h) + 76px + env(safe-area-inset-bottom)); }
+  #pName { font-size: 19px; }
+  .art { width: min(76vw, 44vh); aspect-ratio: 1; margin: 8px auto 0; border-radius: 18px; overflow: hidden; box-shadow: 0 18px 50px #0009; display: grid; place-items: center; position: relative; }
+  .art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .art .tile { width: 100%; height: 100%; border-radius: 0; font-size: 22vw; }
+  #pTitle { margin: 22px 0 4px; text-align: center; font-size: 26px; font-weight: 600; line-height: 1.15; overflow-wrap: anywhere; }
+  #pSub { margin: 0; text-align: center; color: var(--muted); font-size: 16px; min-height: 22px; }
+  .prog { margin: 20px 6px 0; }
+  .prog .line { height: 3px; border-radius: 2px; background: var(--text); opacity: .85; }
+  .prog.paused .line { opacity: .3; }
+  .times { display: flex; justify-content: space-between; margin-top: 6px; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+  .ctl { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 14px; }
+  .ctl .ibtn { width: 52px; height: 52px; }
+  .ctl .ibtn svg { width: 28px; height: 28px; }
+  #bPlay { width: 84px; height: 84px; border: 3px solid var(--acc); color: var(--acc); }
+  #bPlay svg { width: 40px; height: 40px; }
+  #bHeart.on svg { fill: currentColor; }
+  #state { text-align: center; color: var(--muted); font-size: 13px; margin-top: 8px; min-height: 18px; }
+  #sleepBadge { position: absolute; font-size: 10px; margin-top: 30px; color: var(--acc); }
+
+  #sheet { position: fixed; left: 0; right: 0; bottom: calc(var(--tabs-h) + env(safe-area-inset-bottom)); z-index: 4; background: var(--bg2); border-radius: 18px 18px 0 0; display: none; box-shadow: 0 -8px 30px #0006; }
+  body.on-player #sheet { display: block; }
+  #sheetHead { width: 100%; height: 48px; display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--acc); font-weight: 600; letter-spacing: .08em; text-transform: uppercase; font-size: 15px; }
+  #sheetHead svg { transition: transform .2s; }
+  #sheet.open #sheetHead svg { transform: rotate(180deg); }
+  #sheetList { max-height: 0; overflow-y: auto; transition: max-height .25s ease; }
+  #sheet.open #sheetList { max-height: 44vh; }
+  #sheetList li { padding: 10px 20px; border-top: 1px solid var(--line); }
+  #sheetList b { display: block; font-weight: 500; }
+  #sheetList small { color: var(--muted); }
+
+  /* ---------- мини-плеер и вкладки ---------- */
+  #mini { position: fixed; left: 10px; right: 10px; bottom: calc(var(--tabs-h) + 8px + env(safe-area-inset-bottom)); z-index: 4; display: none; align-items: center; gap: 12px; background: var(--bg3); border-radius: 16px; padding: 8px 8px 8px 8px; box-shadow: 0 8px 26px #0008; }
+  body.has-mini:not(.on-player) #mini { display: flex; }
+  #mini .tile { width: 44px; height: 44px; font-size: 16px; }
+  #mini .txt { flex: 1; min-width: 0; }
+  #mini b { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #mini small { color: var(--muted); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; display: flex; justify-content: space-around; align-items: center; height: calc(var(--tabs-h) + env(safe-area-inset-bottom)); padding: 0 8px env(safe-area-inset-bottom); background: var(--bg2); }
+  #tabs button { height: 48px; padding: 0 16px; border-radius: 24px; display: flex; align-items: center; gap: 8px; color: var(--acc); font-weight: 600; }
+  #tabs button span { display: none; }
+  #tabs button.on { background: color-mix(in srgb, var(--acc) 18%, transparent); }
+  #tabs button.on span { display: inline; }
+  #tabs button:not(.on) { color: color-mix(in srgb, var(--acc) 80%, var(--muted)); }
+
+  /* ---------- настройки ---------- */
+  .card h3 { margin: 0 0 10px; font-size: 14px; font-weight: 600; color: var(--muted); letter-spacing: .06em; text-transform: uppercase; }
+  .themes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .theme { display: flex; align-items: center; gap: 10px; padding: 12px; border-radius: 12px; background: var(--bg3); border: 2px solid transparent; text-align: left; }
+  .theme.on { border-color: var(--acc); }
+  .sw { display: flex; } .sw i { width: 14px; height: 24px; display: block; } .sw i:first-child { border-radius: 7px 0 0 7px; } .sw i:last-child { border-radius: 0 7px 7px 0; }
+  .line { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; }
+  .line small { color: var(--muted); display: block; font-size: 12px; }
+  .switch { width: 50px; height: 30px; border-radius: 15px; background: var(--bg3); position: relative; flex: none; }
+  .switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%; background: var(--muted); transition: .2s; }
+  .switch.on { background: var(--acc); } .switch.on::after { left: 23px; background: var(--on-acc); }
+  .res { color: var(--muted); font-size: 13px; margin-top: 8px; }
+  a { color: var(--acc); }
+
+  #overlay { position: fixed; inset: 0; z-index: 20; background: #0009; display: none; align-items: flex-end; }
+  #overlay.on { display: flex; }
+  #overlay .box { width: 100%; background: var(--bg2); border-radius: 20px 20px 0 0; padding: 14px 16px calc(18px + env(safe-area-inset-bottom)); }
+  #overlay .box h3 { margin: 4px 0 10px; text-align: center; font-size: 16px; }
+  #overlay .opt { width: 100%; padding: 14px; border-radius: 12px; text-align: center; font-size: 17px; }
+  #overlay .opt.on { color: var(--acc); font-weight: 600; }
 </style>
 </head>
-<body>
-<header>
-  <div class="brand">
-    <img src="../assets/icon.png" alt="">
-    <div>
-      <h1>MARSIK FM</h1>
-      <p>GOOD MUSIC · GOOD VIBES</p>
-    </div>
+<body class="on-player">
+
+<section class="view on" id="v-player">
+  <div class="head"><h1 id="pName">Marsik FM</h1></div>
+  <div class="art" id="art"></div>
+  <h2 id="pTitle">Выбери станцию</h2>
+  <p id="pSub"></p>
+  <div class="prog" id="prog"><div class="line"></div>
+    <div class="times"><span id="elapsed">00:00:00</span><span>LIVE</span></div></div>
+  <div class="ctl">
+    <button class="ibtn" id="bHeart" aria-label="В избранное"></button>
+    <button class="ibtn" id="bPrev" aria-label="Предыдущая"></button>
+    <button class="ibtn" id="bPlay" aria-label="Играть"></button>
+    <button class="ibtn" id="bNext" aria-label="Следующая"></button>
+    <button class="ibtn" id="bSleep" aria-label="Таймер сна"></button>
   </div>
-  <nav>
-    <button class="tab on" data-tab="all">Все</button>
-    <button class="tab" data-tab="fav">★ Избранные</button>
-    <button id="edit" title="Править список: скрыть станции" aria-label="Править список">✎</button>
-    <button id="check" title="Проверить, какие станции отвечают" aria-label="Проверить станции">⟳</button>
-  </nav>
-</header>
+  <div id="state"></div>
+</section>
 
-<ul id="list"></ul>
-<section id="hiddenBox" hidden></section>
-<p id="hint">Загружаю станции…</p>
-
-<footer hidden>
-  <button class="sq" id="prev" aria-label="Предыдущая">‹</button>
-  <div class="txt">
-    <b id="now">—</b>
-    <small id="state">играет</small>
+<section class="view" id="v-stations">
+  <div class="head">
+    <button class="side" id="bCheck" aria-label="Проверить станции"></button>
+    <h1>Станции</h1>
+    <button class="side" id="bEdit" aria-label="Править список"></button>
   </div>
-  <button class="sq" id="next" aria-label="Следующая">›</button>
-  <button id="toggle">Пауза</button>
-  <button id="stop">Стоп</button>
-</footer>
+  <div class="sec" id="secFav"></div>
+  <ul id="listFav" data-group="fav"></ul>
+  <div class="sec" id="secAll"></div>
+  <ul id="listAll" data-group="all"></ul>
+  <div id="hiddenBox" hidden></div>
+  <p class="hint" id="hintSt"></p>
+</section>
 
+<section class="view" id="v-favs">
+  <div class="head">
+    <span class="side"></span><h1>Избранное</h1>
+    <button class="side" id="bEdit2" aria-label="Править список"></button>
+  </div>
+  <ul id="listFav2" data-group="fav"></ul>
+  <p class="hint" id="hintFav"></p>
+</section>
+
+<section class="view" id="v-settings">
+  <div class="head"><span class="side"></span><h1>Настройки</h1><span class="side"></span></div>
+  <div class="card"><h3>Тема</h3><div class="themes" id="themes"></div></div>
+  <div class="card"><h3>Плеер</h3>
+    <div class="line"><div>Обложки треков<small>ищутся в интернете (Apple iTunes) по названию трека</small></div><button class="switch" id="swCovers" aria-label="Обложки треков"></button></div>
+  </div>
+  <div class="card"><h3>Станции</h3>
+    <button class="btn acc" id="bCheck2">Проверить, какие отвечают</button>
+    <div class="res" id="checkRes"></div>
+    <div id="hiddenSet"></div>
+  </div>
+  <div class="card"><h3>О приложении</h3>
+    <div class="res" style="margin:0">Marsik FM · мобильная версия.<br>Избранное, порядок и скрытые станции хранятся на этом телефоне.<br>
+    <a href="https://github.com/botanichk/marsik-fm">github.com/botanichk/marsik-fm</a></div>
+    <div style="margin-top:12px"><button class="btn" id="bReset">Сбросить мои настройки</button></div>
+  </div>
+</section>
+
+<div id="sheet"><button id="sheetHead"><span>Последние</span></button><ul id="sheetList"></ul></div>
+<div id="mini"><span class="tile" id="miniTile"></span><div class="txt"><b id="miniName">—</b><small id="miniSub"></small></div><button class="ibtn" id="miniPlay" aria-label="Играть"></button></div>
+<nav id="tabs">
+  <button data-go="player" aria-label="Плеер"></button>
+  <button data-go="stations" aria-label="Станции"></button>
+  <button data-go="favs" aria-label="Избранное"></button>
+  <button data-go="settings" aria-label="Настройки"></button>
+</nav>
+<div id="overlay"><div class="box" id="overlayBox"></div></div>
 <audio id="audio" preload="none"></audio>
 
 <script>
 'use strict';
 const $ = (s) => document.querySelector(s);
-const LIST = $('#list'), HINT = $('#hint'), AUDIO = $('#audio'), FOOT = $('footer');
-const NOW = $('#now'), STATE = $('#state'), TOGGLE = $('#toggle'), STOP = $('#stop');
-const CHECK = $('#check');
-const EDIT = $('#edit');
+const AUDIO = $('#audio');
+const CONNECT_MS = 10000, STALL_MS = 15000, NP_EVERY_MS = 15000;
 
-const CONNECT_MS = 10000;   // сколько ждём начала звука от одного сервера
-const STALL_MS = 15000;     // сколько терпим «буферизацию» посреди эфира
-const GRIP_SVG = '<svg viewBox="0 0 18 18"><circle cx="6" cy="3" r="1.6"/><circle cx="12" cy="3" r="1.6"/>' +
-  '<circle cx="6" cy="9" r="1.6"/><circle cx="12" cy="9" r="1.6"/><circle cx="6" cy="15" r="1.6"/><circle cx="12" cy="15" r="1.6"/></svg>';
+// ---------- иконки ----------
+const IC = {
+  player: '<svg viewBox="0 0 24 24"><path d="M3 11.5L12 4l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>',
+  radio: '<svg viewBox="0 0 24 24"><rect x="2.5" y="8" width="19" height="13" rx="2.5"/><path d="M6 3l12 4.5"/><circle cx="8.5" cy="14.5" r="2.5"/><path d="M14.5 13h4M14.5 16.5h4"/></svg>',
+  heart: '<svg viewBox="0 0 24 24"><path d="M12 20.5s-7.5-4.6-9.4-9.3C1.2 7.9 3 4.7 6.3 4.5c1.9-.1 3.6.9 4.7 2.5 1.1-1.6 2.8-2.6 4.7-2.5 3.3.2 5.1 3.4 3.7 6.7-1.9 4.7-9.4 9.3-9.4 9.3z"/></svg>',
+  sliders: '<svg viewBox="0 0 24 24"><path d="M4 6h9M19 6h1M4 12h3M13 12h7M4 18h11M21 18h0"/><circle cx="16" cy="6" r="2.2"/><circle cx="10" cy="12" r="2.2"/><circle cx="18" cy="18" r="2.2"/></svg>',
+  play: '<svg class="fill" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>',
+  pause: '<svg class="fill" viewBox="0 0 24 24"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>',
+  prev: '<svg class="fill" viewBox="0 0 24 24"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg>',
+  next: '<svg class="fill" viewBox="0 0 24 24"><path d="M16 5h2v14h-2zM4 5v14l11-7z"/></svg>',
+  timer: '<svg viewBox="0 0 24 24"><circle cx="12" cy="13.5" r="7.5"/><path d="M12 9.5v4l2.5 1.5M9.5 3h5"/></svg>',
+  up: '<svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg>',
+  edit: '<svg viewBox="0 0 24 24"><path d="M4 20h4L19.5 8.5l-4-4L4 16z"/></svg>',
+  check: '<svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.4-5.7M20 4v5h-5"/></svg>',
+  x: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  done: '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+  grip: '<svg viewBox="0 0 18 18"><circle cx="6" cy="3" r="1.6"/><circle cx="12" cy="3" r="1.6"/><circle cx="6" cy="9" r="1.6"/><circle cx="12" cy="9" r="1.6"/><circle cx="6" cy="15" r="1.6"/><circle cx="12" cy="15" r="1.6"/></svg>',
+};
+const fillHeart = (on) => IC.heart.replace('<svg', on ? '<svg style="fill:currentColor"' : '<svg');
+
+// ---------- темы (те же палитры, что в десктопной версии) ----------
+const THEMES = {
+  'Marsik тёмная': { bg:'#0f0c0a', bg2:'#1c1714', bg3:'#29221d', text:'#f3e9dc', muted:'#9c8f82', acc:'#e08a3c', onAcc:'#1b1208', ramp:['#3dd8ff','#965fff','#e256ff'] },
+  'Ночь':          { bg:'#0b0e1a', bg2:'#161a2b', bg3:'#202640', text:'#e2e8f5', muted:'#8b93a8', acc:'#5ac8ff', onAcc:'#04202e', ramp:['#3dd8ff','#4b82ff','#e256ff'] },
+  'Marsik светлая':{ bg:'#f8f0e4', bg2:'#fffaf3', bg3:'#f0e4d2', text:'#40312a', muted:'#8a7466', acc:'#e08a3c', onAcc:'#ffffff', ramp:['#e08a3c','#c46a2c','#4a2f50'] },
+  'Роза':          { bg:'#fae8ee', bg2:'#fff5f8', bg3:'#f6d9e3', text:'#4a2c3a', muted:'#8d6b7a', acc:'#e86c96', onAcc:'#ffffff', ramp:['#ff96be','#be6ee6','#8282ff'] },
+  'Nord':          { bg:'#242933', bg2:'#2e3440', bg3:'#3b4252', text:'#d8dee9', muted:'#8d98ab', acc:'#88c0d0', onAcc:'#10252c', ramp:['#88c0d0','#81a1c1','#b48ead'] },
+  'Mocha':         { bg:'#181825', bg2:'#1e1e2e', bg3:'#313244', text:'#cdd6f4', muted:'#9399b2', acc:'#cba6f7', onAcc:'#1e1030', ramp:['#94e2d5','#89b4fa','#f5c2e7'] },
+  'Gruvbox':       { bg:'#282828', bg2:'#32302f', bg3:'#3c3836', text:'#ebdbb2', muted:'#a89984', acc:'#fabd2f', onAcc:'#2a2000', ramp:['#b8bb26','#fabd2f','#fb4934'] },
+};
+const DEFAULT_THEME = 'Marsik тёмная';
 
 // ---------- хранилище (на этом телефоне) ----------
 const KEY = (k) => 'marsikfm:' + k;
-function load(k, def) {
-  try { const v = localStorage.getItem(KEY(k)); return v == null ? def : JSON.parse(v); }
-  catch (e) { return def; }
-}
+function load(k, def) { try { const v = localStorage.getItem(KEY(k)); return v == null ? def : JSON.parse(v); } catch (e) { return def; } }
 function save(k, v) { try { localStorage.setItem(KEY(k), JSON.stringify(v)); } catch (e) {} }
 
-let stations = [];
-let byId = new Map();
+let stations = [], byId = new Map();
 let favs = new Set(load('fav', []));
-let order = load('order', []);          // свой порядок (id)
-let good = load('good', {});            // id → последний рабочий адрес
-let tab = load('tab', 'all');
-let hidden = new Set(load('hidden', []));   // скрытые на этом телефоне
+let order = load('order', []);
+let good = load('good', {});
+let hidden = new Set(load('hidden', []));
+let themeName = load('theme', DEFAULT_THEME);
+let covers = load('covers', true);
+let history = load('history', []);
 let editing = false;
-const dead = new Map();                 // id → причина ('down' | 'nohttps'); только на
-                                        // сессию: вечером работает, утром нет — и наоборот
-const UP = new Set();                   // адреса, которые мы сами «подняли» с http до https
+let view = 'stations';
+const dead = new Map();               // id → 'down' | 'nohttps' (только на сессию)
+const UP = new Set();                 // адреса, поднятые нами с http до https
+const logos = {};                     // id → адрес логотипа (из каталога SomaFM)
+
+const theme = () => THEMES[themeName] || THEMES[DEFAULT_THEME];
+
+function applyTheme() {
+  const t = theme(), r = document.documentElement.style;
+  r.setProperty('--bg', t.bg); r.setProperty('--bg2', t.bg2); r.setProperty('--bg3', t.bg3);
+  r.setProperty('--text', t.text); r.setProperty('--muted', t.muted);
+  r.setProperty('--acc', t.acc); r.setProperty('--on-acc', t.onAcc);
+  r.setProperty('--line', t.text + '1f');
+  $('#metaTheme').setAttribute('content', t.bg);
+  document.querySelectorAll('.tile[data-tile]').forEach(paintTile);
+}
+
+// ---------- плитки-логотипы ----------
+function initials(name) {
+  const w = name.replace(/[^\p{L}\p{N} ]/gu, ' ').trim().split(/\s+/).filter(Boolean);
+  return ((w[0] || '?')[0] + (w.length > 1 ? w[1][0] : (w[0] || '')[1] || '')).toUpperCase();
+}
+function hueOf(id) { let h = 0; for (const c of id) h = (h * 31 + c.charCodeAt(0)) % 360; return h; }
+function paintTile(el) {
+  const st = byId.get(el.dataset.tile); if (!st) return;
+  const url = st.logo || logos[st.id];
+  el.textContent = '';
+  el.style.background = '';
+  if (url) {
+    const img = document.createElement('img');
+    img.alt = ''; img.src = url; img.loading = 'lazy';
+    img.onerror = () => { logos[st.id] = null; st.logo = null; paintTile(el); };
+    el.append(img);
+  } else {
+    const h = hueOf(st.id);
+    el.style.background = 'linear-gradient(135deg, hsl(' + h + ' 55% 42%), hsl(' + ((h + 50) % 360) + ' 60% 32%))';
+    el.textContent = initials(st.name);
+  }
+}
+function makeTile(st) {
+  const el = document.createElement('span');
+  el.className = 'tile'; el.dataset.tile = st.id;
+  paintTile(el);
+  return el;
+}
 
 // ---------- адреса потока ----------
 function candidates(st) {
@@ -165,226 +313,335 @@ function candidates(st) {
     try { u = new URL(raw); } catch (e) { continue; }
     let upgraded = false;
     if (location.protocol === 'https:' && u.protocol === 'http:') {
-      // http-поток на https-странице браузер блокирует: пробуем https-версию.
-      // На IP-адрес сертификата не бывает — такой поток на телефоне не сыграет.
-      if (/^\d+\.\d+\.\d+\.\d+$/.test(u.hostname)) continue;
+      if (/^\d+\.\d+\.\d+\.\d+$/.test(u.hostname)) continue;   // у IP нет сертификата
       u.protocol = 'https:'; upgraded = true;
     }
     if (upgraded) UP.add(u.href);
     add(u.href);
-    // у SomaFM несколько зеркал: если одно перегружено — пробуем другое
-    if (/^ice\d+\.somafm\.com$/.test(u.hostname)) {
+    if (/^ice\d+\.somafm\.com$/.test(u.hostname)) {            // зеркала SomaFM
       for (const n of [1, 2, 4, 6]) {
         const m = new URL(u.href); m.hostname = 'ice' + n + '.somafm.com'; add(m.href);
       }
     }
   }
-  const g = good[st.id];                 // последний рабочий — первым
+  const g = good[st.id];
   if (g && out.includes(g)) { out.splice(out.indexOf(g), 1); out.unshift(g); }
   return out;
 }
 const phoneOk = (st) => candidates(st).length > 0;
+const somaId = (st) => { const m = /ice\d+\.somafm\.com\/([a-z0-9]+)-/.exec([].concat(st.urls || st.url || [])[0] || ''); return m ? m[1] : null; };
 
-// ---------- порядок и избранное ----------
+// ---------- порядок ----------
 function orderedIds() {
   const ids = stations.map((s) => s.id), seen = new Set(), out = [];
   for (const id of order) if (byId.has(id) && !seen.has(id)) { seen.add(id); out.push(id); }
   for (const id of ids) if (!seen.has(id)) out.push(id);
   return out;
 }
-function viewIds() {
-  const o = orderedIds().filter((id) => !hidden.has(id));
-  const f = o.filter((id) => favs.has(id)), n = o.filter((id) => !favs.has(id));
-  return tab === 'fav' ? f : f.concat(n);
-}
-function commitOrder() {
-  // порядок строк в DOM → общий порядок (избранные сверху, остальные ниже)
-  const dom = [...LIST.children].map((li) => li.dataset.id);
+const visibleIds = () => orderedIds().filter((id) => !hidden.has(id));
+const favIds = () => visibleIds().filter((id) => favs.has(id));
+const restIds = () => visibleIds().filter((id) => !favs.has(id));
+function commitOrder(group, ids) {
   const all = orderedIds();
-  const f = dom.filter((id) => favs.has(id));
-  const n = dom.filter((id) => !favs.has(id));
-  order = f.concat(all.filter((id) => favs.has(id) && !f.includes(id)),
-                   n, all.filter((id) => !favs.has(id) && !n.includes(id)));
-  save('order', order);
+  const f = all.filter((id) => favs.has(id)), n = all.filter((id) => !favs.has(id));
+  const nf = group === 'fav' ? ids.concat(f.filter((x) => !ids.includes(x))) : f;
+  const nn = group === 'all' ? ids.concat(n.filter((x) => !ids.includes(x))) : n;
+  order = nf.concat(nn); save('order', order);
 }
 
-// ---------- список ----------
+// ---------- строки списков ----------
 function makeRow(st) {
   const li = document.createElement('li');
-  li.dataset.id = st.id;
-  const star = document.createElement('button');
-  if (editing) {
-    star.className = 'del'; star.textContent = '✕';
-    star.setAttribute('aria-label', 'Скрыть станцию');
-  } else {
-    star.className = 'star' + (favs.has(st.id) ? ' on' : '');
-    star.textContent = favs.has(st.id) ? '★' : '☆';
-    star.setAttribute('aria-label', 'Избранное');
-  }
+  li.className = 'row'; li.dataset.id = st.id;
   const txt = document.createElement('span'); txt.className = 'txt';
   const b = document.createElement('b'); b.textContent = st.name;
   const small = document.createElement('small'); small.textContent = st.description || '';
-  const badge = document.createElement('span'); badge.className = 'badge';
+  const badge = document.createElement('small'); badge.className = 'badge';
   txt.append(b, small, badge);
-  const grip = document.createElement('span'); grip.className = 'grip';
-  grip.innerHTML = GRIP_SVG; grip.setAttribute('aria-label', 'Перетащить');
-  li.append(star, txt, grip);
+  const act = document.createElement('button');
+  if (editing) { act.className = 'ibtn del'; act.innerHTML = IC.x; act.setAttribute('aria-label', 'Скрыть станцию'); act.dataset.act = 'hide'; }
+  else { act.className = 'ibtn'; act.innerHTML = fillHeart(favs.has(st.id)); act.setAttribute('aria-label', 'Избранное'); act.dataset.act = 'fav'; }
+  li.append(makeTile(st), txt, act);
+  if (editing) {
+    const grip = document.createElement('span'); grip.className = 'grip'; grip.innerHTML = IC.grip; grip.dataset.act = 'grip';
+    li.append(grip);
+  }
   paintRow(li);
   return li;
 }
 function paintRow(li) {
   const st = byId.get(li.dataset.id);
-  const nophone = !phoneOk(st);
-  li.classList.toggle('on', !!(cur && cur.id === st.id));
+  const nophone = !phoneOk(st), why = dead.get(st.id);
+  li.classList.toggle('now', !!(cur && cur.id === st.id));
   li.classList.toggle('nophone', nophone);
-  li.classList.toggle('dead', nophone || dead.has(st.id));
-  const badge = li.querySelector('.badge');
-  const why = dead.get(st.id);
-  badge.textContent = nophone ? 'только http (адрес без домена) — на телефоне не играет'
-                    : why === 'nohttps' ? 'нет https-версии — на телефоне не играет'
-                    : why ? 'не отвечает' : '';
+  li.classList.toggle('dead', nophone || !!why);
+  li.querySelector('.badge').textContent = nophone ? 'только http (адрес без домена) — на телефоне не играет'
+    : why === 'nohttps' ? 'нет https-версии — на телефоне не играет'
+    : why ? 'не отвечает' : '';
 }
-function paintAll() { for (const li of LIST.children) paintRow(li); }
+const paintAll = () => document.querySelectorAll('li.row').forEach(paintRow);
 
-function render() {
-  LIST.textContent = '';
-  for (const id of viewIds()) LIST.append(makeRow(byId.get(id)));
-  for (const t of document.querySelectorAll('nav .tab')) t.classList.toggle('on', t.dataset.tab === tab);
-  EDIT.classList.toggle('on', editing);
-  EDIT.textContent = editing ? 'Готово' : '✎';
+function renderLists() {
+  const ids = { fav: favIds(), all: restIds() };
+  const fill = (ul, list) => { ul.textContent = ''; for (const id of list) ul.append(makeRow(byId.get(id))); };
+  fill($('#listFav'), ids.fav); fill($('#listAll'), ids.all); fill($('#listFav2'), ids.fav);
+  $('#secFav').innerHTML = IC.heart.replace('<svg', '<svg style="fill:currentColor"') + '<span>Избранное</span>';
+  $('#secAll').innerHTML = IC.radio + '<span>Станции</span>';
+  $('#secFav').hidden = $('#listFav').hidden = !ids.fav.length;
+  const hint = editing ? 'Правка: ✕ скрывает станцию на этом телефоне (на компьютере она останется), значок справа — перетащить. Скрытые можно вернуть ниже.'
+    : ids.all.length + ids.fav.length + ' станций · ♥ в избранное · ✎ — порядок и скрытие';
+  $('#hintSt').textContent = hint;
+  $('#hintFav').textContent = ids.fav.length ? (editing ? 'Перетащи за значок справа, чтобы изменить порядок.' : '') : 'Пока пусто — нажми ♥ у станции, и она появится здесь.';
+  for (const b of [$('#bEdit'), $('#bEdit2')]) { b.innerHTML = editing ? IC.done : IC.edit; b.classList.toggle('on', editing); }
   renderHidden();
-  updateHint();
+  fixPlayerHeart();
 }
 function renderHidden() {
-  const box = $('#hiddenBox');
-  box.hidden = !(editing && hidden.size);
-  if (box.hidden) return;
-  box.textContent = '';
-  const h = document.createElement('h2');
-  h.textContent = 'Скрытые на этом телефоне (' + hidden.size + ')';
-  box.append(h);
-  for (const id of hidden) {
-    const st = byId.get(id); if (!st) continue;
-    const row = document.createElement('div'); row.className = 'hrow'; row.dataset.id = id;
-    const name = document.createElement('span'); name.textContent = st.name;
-    const btn = document.createElement('button'); btn.textContent = 'Вернуть';
-    row.append(name, btn); box.append(row);
+  const show = editing && hidden.size;
+  const box = $('#hiddenBox'); box.hidden = !show;
+  if (show) {
+    box.textContent = '';
+    const h = document.createElement('div'); h.className = 'hint'; h.style.margin = '0 0 4px';
+    h.textContent = 'Скрытые на этом телефоне (' + hidden.size + ')'; box.append(h);
+    for (const id of hidden) {
+      const st = byId.get(id); if (!st) continue;
+      const row = document.createElement('div'); row.className = 'hrow'; row.dataset.id = id;
+      const n = document.createElement('span'); n.textContent = st.name;
+      const b = document.createElement('button'); b.className = 'btn'; b.textContent = 'Вернуть';
+      row.append(n, b); box.append(row);
+    }
+  }
+  // то же в настройках (всегда видно)
+  const hs = $('#hiddenSet'); hs.textContent = '';
+  if (hidden.size) {
+    const h = document.createElement('div'); h.className = 'res'; h.textContent = 'Скрытые станции (' + hidden.size + '):'; hs.append(h);
+    for (const id of hidden) {
+      const st = byId.get(id); if (!st) continue;
+      const row = document.createElement('div'); row.className = 'hrow'; row.dataset.id = id;
+      const n = document.createElement('span'); n.textContent = st.name;
+      const b = document.createElement('button'); b.className = 'btn'; b.textContent = 'Вернуть';
+      row.append(n, b); hs.append(row);
+    }
   }
 }
-$('#hiddenBox').addEventListener('click', (e) => {
-  const row = e.target.closest('.hrow'); if (!row || !e.target.closest('button')) return;
-  hidden.delete(row.dataset.id); save('hidden', [...hidden]); render();
-});
-function updateHint(text) {
-  if (text) { HINT.textContent = text; return; }
-  const nf = favs.size, total = stations.length - hidden.size;
-  if (editing) HINT.textContent = 'Правка: ✕ скрывает станцию на этом телефоне (на компьютере она останется). Скрытые можно вернуть ниже.';
-  else if (tab === 'fav' && !nf) HINT.textContent = 'Пока пусто — нажми ☆ у станции, и она появится здесь.';
-  else if (tab === 'fav') HINT.textContent = 'Избранных: ' + nf + '. Порядок меняется перетаскиванием за значок справа.';
-  else HINT.textContent = total + ' станций · избранные сверху · порядок — за значок справа';
+for (const sel of ['#hiddenBox', '#hiddenSet']) {
+  document.addEventListener('click', (e) => {
+    const row = e.target.closest(sel + ' .hrow'); if (!row || !e.target.closest('button')) return;
+    hidden.delete(row.dataset.id); save('hidden', [...hidden]); renderLists();
+  });
 }
 
-EDIT.addEventListener('click', () => { editing = !editing; render(); });
-document.querySelectorAll('nav .tab').forEach((b) => b.addEventListener('click', () => {
-  tab = b.dataset.tab; save('tab', tab); render();
-}));
-
-LIST.addEventListener('click', (e) => {
-  const li = e.target.closest('li'); if (!li) return;
-  if (e.target.closest('.grip')) return;
+function onListClick(e) {
+  const li = e.target.closest('li.row'); if (!li) return;
   const st = byId.get(li.dataset.id);
-  if (e.target.closest('.del')) {
+  const act = e.target.closest('[data-act]');
+  if (act && act.dataset.act === 'grip') return;
+  if (act && act.dataset.act === 'hide') {
     hidden.add(st.id); save('hidden', [...hidden]);
     if (cur && cur.id === st.id) stopNow();
     if (navigator.vibrate) navigator.vibrate(8);
-    render(); return;
+    renderLists(); return;
   }
-  if (editing) return;                  // в режиме правки строка не запускает станцию
-  if (e.target.closest('.star')) {
-    if (favs.has(st.id)) favs.delete(st.id); else favs.add(st.id);
-    save('fav', [...favs]);
-    if (navigator.vibrate) navigator.vibrate(8);
-    render(); return;
+  if (act && act.dataset.act === 'fav') {
+    toggleFav(st.id); renderLists(); return;
   }
+  if (editing) return;
   startStation(st);
-});
+}
+['#listFav', '#listAll', '#listFav2'].forEach((s) => $(s).addEventListener('click', onListClick));
+function toggleFav(id) {
+  if (favs.has(id)) favs.delete(id); else favs.add(id);
+  save('fav', [...favs]);
+  if (navigator.vibrate) navigator.vibrate(8);
+}
+const toggleEdit = () => { editing = !editing; renderLists(); };
+$('#bEdit').addEventListener('click', toggleEdit);
+$('#bEdit2').addEventListener('click', toggleEdit);
 
-// ---------- перетаскивание за значок ----------
+// ---------- перетаскивание за значок (в режиме правки) ----------
 let drag = null;
-LIST.addEventListener('pointerdown', (e) => {
+document.addEventListener('pointerdown', (e) => {
   const grip = e.target.closest('.grip'); if (!grip) return;
-  const li = grip.closest('li');
+  const li = grip.closest('li.row'), ul = li.parentElement;
   e.preventDefault();
   if (grip.setPointerCapture) { try { grip.setPointerCapture(e.pointerId); } catch (err) {} }
   const r = li.getBoundingClientRect();
-  drag = { li, id: e.pointerId, grab: e.clientY - r.top, y: e.clientY, fav: favs.has(li.dataset.id), raf: 0 };
+  drag = { li, ul, id: e.pointerId, grab: e.clientY - r.top, y: e.clientY, raf: 0 };
   li.classList.add('drag');
   if (navigator.vibrate) navigator.vibrate(10);
   dragFrame();
 });
 function dragFrame() {
   if (!drag) return;
-  const { li } = drag;
-  // автопрокрутка у краёв экрана
-  if (drag.y < 130) window.scrollBy(0, -10);
-  else if (drag.y > innerHeight - 150) window.scrollBy(0, 10);
-  // куда вставить: среди строк той же группы (избранные / обычные)
-  const same = [...LIST.children].filter((o) => o !== li && favs.has(o.dataset.id) === drag.fav);
+  const { li, ul } = drag;
+  const scroller = li.closest('.view');
+  if (drag.y < 130) scroller.scrollBy(0, -10);
+  else if (drag.y > innerHeight - 170) scroller.scrollBy(0, 10);
+  const same = [...ul.children].filter((o) => o !== li);
   let before = null;
   for (const o of same) {
     const rr = o.getBoundingClientRect();
     if (drag.y < rr.top + rr.height / 2) { before = o; break; }
   }
-  if (before) { if (li.nextElementSibling !== before) LIST.insertBefore(li, before); }
-  else if (same.length) {
-    const last = same[same.length - 1];
-    if (last.nextElementSibling !== li) last.after(li);
-  }
-  // строка следует за пальцем
+  if (before) { if (li.nextElementSibling !== before) ul.insertBefore(li, before); }
+  else if (same.length) { const last = same[same.length - 1]; if (last.nextElementSibling !== li) last.after(li); }
   li.style.transform = 'none';
   const top = li.getBoundingClientRect().top;
   li.style.transform = 'translateY(' + (drag.y - drag.grab - top) + 'px)';
   drag.raf = requestAnimationFrame(dragFrame);
 }
-LIST.addEventListener('pointermove', (e) => { if (drag && e.pointerId === drag.id) drag.y = e.clientY; });
+document.addEventListener('pointermove', (e) => { if (drag && e.pointerId === drag.id) drag.y = e.clientY; });
 function endDrag(e) {
   if (!drag || (e && e.pointerId !== drag.id)) return;
   cancelAnimationFrame(drag.raf);
-  drag.li.classList.remove('drag'); drag.li.style.transform = '';
+  const { li, ul } = drag;
+  li.classList.remove('drag'); li.style.transform = '';
   drag = null;
-  commitOrder();
+  commitOrder(ul.dataset.group, [...ul.children].map((o) => o.dataset.id));
+  renderLists();
 }
-LIST.addEventListener('pointerup', endDrag);
-LIST.addEventListener('pointercancel', endDrag);
+document.addEventListener('pointerup', endDrag);
+document.addEventListener('pointercancel', endDrag);
+
+// ---------- вкладки ----------
+const TAB_ICONS = { player: IC.player, stations: IC.radio, favs: IC.heart, settings: IC.sliders };
+const TAB_NAMES = { player: 'Плеер', stations: 'Станции', favs: 'Избранное', settings: 'Настройки' };
+document.querySelectorAll('#tabs button').forEach((b) => {
+  b.innerHTML = TAB_ICONS[b.dataset.go] + '<span>' + TAB_NAMES[b.dataset.go] + '</span>';
+  b.addEventListener('click', () => go(b.dataset.go));
+});
+function go(v) {
+  view = v;
+  document.querySelectorAll('.view').forEach((s) => s.classList.toggle('on', s.id === 'v-' + v));
+  document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.go === v));
+  document.body.classList.toggle('on-player', v === 'player');
+  if (v !== 'stations' && v !== 'favs' && editing) { editing = false; renderLists(); }
+}
+
+// ---------- плеер: что показываем ----------
+let np = null;            // {artist, title, art}
+let startedAt = 0;
+
+function artTile(st) { const t = makeTile(st); return t; }
+function renderPlayer() {
+  $('#pName').textContent = cur ? cur.name : 'Marsik FM';
+  const art = $('#art'); art.textContent = '';
+  if (np && np.art) {
+    const img = document.createElement('img'); img.alt = ''; img.src = np.art;
+    img.onerror = () => { np.art = null; renderPlayer(); };
+    art.append(img);
+  } else if (cur) art.append(artTile(cur));
+  else { const t = document.createElement('span'); t.className = 'tile'; t.style.background = 'linear-gradient(135deg,var(--acc),var(--bg3))'; t.textContent = '♪'; art.append(t); }
+  $('#pTitle').textContent = np && np.title ? np.title : (cur ? cur.name : 'Выбери станцию');
+  $('#pSub').textContent = np && np.title ? (np.artist || '') : (cur ? (cur.description || '') : 'Открой вкладку «Станции»');
+  for (const b of [$('#bPlay'), $('#miniPlay')]) b.innerHTML = S.intent ? IC.pause : IC.play;
+  $('#bPlay').setAttribute('aria-label', S.intent ? 'Пауза' : 'Играть');
+  $('#prog').classList.toggle('paused', !S.intent);
+  $('#miniName').textContent = cur ? cur.name : '—';
+  $('#miniSub').textContent = np && np.title ? (np.artist ? np.artist + ' — ' : '') + np.title : $('#state').textContent;
+  $('#miniTile').replaceWith(Object.assign(cur ? makeTile(cur) : document.createElement('span'), { id: 'miniTile' }));
+  $('#miniTile').className = 'tile';
+  document.body.classList.toggle('has-mini', !!cur);
+  fixPlayerHeart();
+  paintAll();
+}
+function fixPlayerHeart() {
+  const b = $('#bHeart'), on = !!(cur && favs.has(cur.id));
+  b.innerHTML = fillHeart(on); b.classList.toggle('on', on);
+  b.setAttribute('aria-label', on ? 'Убрать из избранного' : 'В избранное');
+}
+function setState(t) { $('#state').textContent = t; if (!np || !np.title) $('#miniSub').textContent = t; }
+
+// ---------- информация «что играет» (где станция её отдаёт) ----------
+let npTimer = 0, channels = null;
+async function loadChannels() {
+  try {
+    const r = await fetch('https://somafm.com/channels.json', { cache: 'no-store' });
+    const j = await r.json();
+    channels = {};
+    for (const c of j.channels || []) {
+      channels[c.id] = c;
+      const st = byId.get(c.id) || stations.find((s) => somaId(s) === c.id);
+      if (st && !st.logo) logos[st.id] = c.largeimage || c.image || c.xlimage || null;
+    }
+    document.querySelectorAll('.tile[data-tile]').forEach(paintTile);
+    return true;
+  } catch (e) { return false; }
+}
+function parsePlaying(s) {
+  if (!s) return null;
+  const i = s.indexOf(' - ');
+  return i > 0 ? { artist: s.slice(0, i).trim(), title: s.slice(i + 3).trim() } : { artist: '', title: s.trim() };
+}
+async function pollNowPlaying() {
+  clearTimeout(npTimer);
+  if (!cur || !S.intent) return;
+  const sid = somaId(cur);
+  if (sid) {
+    if (await loadChannels() && channels && channels[sid]) {
+      const p = parsePlaying(channels[sid].lastPlaying);
+      if (p && (!np || np.title !== p.title || np.artist !== p.artist)) setTrack(p);
+    }
+  }
+  npTimer = setTimeout(pollNowPlaying, NP_EVERY_MS);
+}
+const coverCache = {};
+async function findCover(p) {
+  if (!covers || !p.title) return null;
+  const key = (p.artist + '|' + p.title).toLowerCase();
+  if (key in coverCache) return coverCache[key];
+  try {
+    const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 5000);
+    const r = await fetch('https://itunes.apple.com/search?media=music&entity=song&limit=1&term=' + encodeURIComponent((p.artist + ' ' + p.title).trim()), { signal: ctl.signal });
+    clearTimeout(t);
+    const j = await r.json();
+    const u = j.results && j.results[0] && j.results[0].artworkUrl100;
+    return (coverCache[key] = u ? u.replace('100x100', '600x600') : null);
+  } catch (e) { return (coverCache[key] = null); }
+}
+async function setTrack(p) {
+  np = { artist: p.artist, title: p.title, art: null };
+  history.unshift({ artist: p.artist, title: p.title, station: cur ? cur.name : '', t: Date.now() });
+  history = history.slice(0, 40); save('history', history);
+  renderPlayer(); renderHistory(); updateSession();
+  const art = await findCover(p);
+  if (art && np && np.title === p.title) { np.art = art; renderPlayer(); updateSession(); }
+}
+function clearTrack() { np = null; }
+function renderHistory() {
+  const ul = $('#sheetList'); ul.textContent = '';
+  if (!history.length) { const li = document.createElement('li'); li.innerHTML = '<small>Пока пусто — треки появятся, когда станция сообщит, что играет.</small>'; ul.append(li); return; }
+  for (const h of history) {
+    const li = document.createElement('li');
+    const b = document.createElement('b'); b.textContent = h.title;
+    const s = document.createElement('small');
+    const d = new Date(h.t);
+    s.textContent = (h.artist ? h.artist + ' · ' : '') + h.station + ' · ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    li.append(b, s); ul.append(li);
+  }
+}
+$('#sheetHead').addEventListener('click', () => $('#sheet').classList.toggle('open'));
 
 // ---------- воспроизведение с запасными серверами ----------
-let cur = null;                       // играющая станция
+let cur = null;
 const S = { intent: false, token: 0, cands: [], idx: 0, retry: 0, timer: 0, stall: 0 };
-
-function setState(t) { STATE.textContent = t; }
 function clearTimers() { clearTimeout(S.timer); clearTimeout(S.stall); }
 
 function startStation(st) {
   S.token++; clearTimers();
+  if (cur && cur.id !== st.id) clearTrack();
   cur = st; S.intent = true; S.retry = 0; S.idx = 0;
   S.cands = candidates(st);
   save('last', st.id);
-  NOW.textContent = st.name; FOOT.hidden = false;
-  TOGGLE.textContent = 'Пауза';
-  paintAll();
-  if ('mediaSession' in navigator) {
-    navigator.mediaSession.metadata = new MediaMetadata({
-      title: st.name, artist: st.description || 'Marsik FM',
-      artwork: [{ src: '../assets/icon.png', sizes: '256x256', type: 'image/png' }],
-    });
-  }
+  startedAt = 0;
+  renderPlayer();
   if (!S.cands.length) {
-    S.intent = false; AUDIO.pause();
+    S.intent = false; AUDIO.pause(); renderPlayer();
     setState('только http — на телефоне не играет'); return;
   }
   attempt();
+  pollNowPlaying();
 }
-
 function attempt() {
   const tok = S.token;
   if (S.idx >= S.cands.length) return giveUp();
@@ -392,60 +649,46 @@ function attempt() {
   AUDIO.src = S.cands[S.idx];
   const p = AUDIO.play();
   if (p && p.catch) p.catch((err) => {
-    if (tok !== S.token) return;                 // уже переключились — это старый запрос
+    if (tok !== S.token) return;
     if (err && err.name === 'AbortError') return;
-    if (err && err.name === 'NotAllowedError') { S.intent = false; setState('нажми «Играть»'); return; }
+    if (err && err.name === 'NotAllowedError') { S.intent = false; renderPlayer(); setState('нажми «Играть»'); return; }
     failover();
   });
   clearTimeout(S.timer);
   S.timer = setTimeout(() => { if (tok === S.token && S.intent) failover(); }, CONNECT_MS);
 }
 function failover() { clearTimers(); S.idx++; attempt(); }
-
 function giveUp() {
   if (!cur) return;
-  // все адреса — наши https-версии http-потока: значит, https у станции просто нет
   if (S.cands.length && S.cands.every((u) => UP.has(u))) {
-    dead.set(cur.id, 'nohttps'); paintAll();
-    S.intent = false;
-    setState('нет https-версии — на телефоне не играет');
-    return;
+    dead.set(cur.id, 'nohttps'); S.intent = false; renderPlayer();
+    setState('нет https-версии — на телефоне не играет'); return;
   }
   dead.set(cur.id, 'down'); paintAll();
-  if (S.retry < 4) {                              // эфир мог просто моргнуть
-    S.retry++;
-    setState('станция не отвечает, повторяю…');
+  if (S.retry < 4) {
+    S.retry++; setState('станция не отвечает, повторяю…');
     const tok = ++S.token;
     S.timer = setTimeout(() => { if (tok === S.token && S.intent) { S.idx = 0; attempt(); } }, 3000 * S.retry);
-  } else {
-    S.intent = false;
-    setState('не отвечает — нажми, чтобы повторить');
-  }
+  } else { S.intent = false; renderPlayer(); setState('не отвечает — нажми, чтобы повторить'); }
 }
 function reconnect(msg) {
   if (!cur || !S.intent) return;
   clearTimers(); S.token++; S.idx = 0; S.retry++;
-  if (S.retry > 6) { S.intent = false; setState('связь пропала — нажми, чтобы повторить'); return; }
+  if (S.retry > 6) { S.intent = false; renderPlayer(); setState('связь пропала — нажми, чтобы повторить'); return; }
   setState(msg || 'переподключаюсь…');
   const tok = S.token;
   S.timer = setTimeout(() => { if (tok === S.token && S.intent) attempt(); }, 800 * S.retry);
 }
-
 AUDIO.addEventListener('playing', () => {
-  clearTimers();
-  S.retry = 0;
-  if (cur) {
-    dead.delete(cur.id);
-    good[cur.id] = S.cands[S.idx]; save('good', good);
-    paintAll();
-  }
-  setState('играет'); TOGGLE.textContent = 'Пауза';
+  clearTimers(); S.retry = 0;
+  if (cur) { dead.delete(cur.id); good[cur.id] = S.cands[S.idx]; save('good', good); }
+  if (!startedAt) startedAt = Date.now();
+  setState('играет'); renderPlayer();
 });
-AUDIO.addEventListener('pause', () => { if (!S.intent || AUDIO.ended) return; setState('пауза'); TOGGLE.textContent = 'Играть'; });
+AUDIO.addEventListener('pause', () => { if (S.intent && !AUDIO.ended) { /* пауза от системы */ setState('пауза'); } });
 AUDIO.addEventListener('waiting', () => {
   if (!S.intent) return;
-  setState('буферизация…');
-  clearTimeout(S.stall);
+  setState('буферизация…'); clearTimeout(S.stall);
   const tok = S.token;
   S.stall = setTimeout(() => { if (tok === S.token) reconnect('поток завис, переподключаюсь…'); }, STALL_MS);
 });
@@ -453,92 +696,152 @@ AUDIO.addEventListener('error', () => { if (S.intent) failover(); });
 AUDIO.addEventListener('ended', () => { if (S.intent) reconnect('эфир прервался, переподключаюсь…'); });
 addEventListener('online', () => { if (cur && S.intent && AUDIO.paused) reconnect('сеть вернулась…'); });
 
-function pauseNow() {
-  S.intent = false; clearTimers(); S.token++;
-  AUDIO.pause(); setState('пауза'); TOGGLE.textContent = 'Играть';
-}
+function pauseNow() { S.intent = false; clearTimers(); S.token++; clearTimeout(npTimer); AUDIO.pause(); setState('пауза'); renderPlayer(); }
 function stopNow() {
-  S.intent = false; clearTimers(); S.token++;
+  S.intent = false; clearTimers(); S.token++; clearTimeout(npTimer);
   AUDIO.pause(); AUDIO.removeAttribute('src'); AUDIO.load();
-  FOOT.hidden = true; cur = null; paintAll();
+  cur = null; np = null; startedAt = 0; setState(''); renderPlayer();
 }
-TOGGLE.addEventListener('click', () => {
-  if (!cur) return;
-  if (S.intent) pauseNow(); else startStation(cur);   // эфир живой — подключаемся заново
-});
-STOP.addEventListener('click', stopNow);
-
+function togglePlay() {
+  if (!cur) { go('stations'); return; }
+  if (S.intent) pauseNow(); else startStation(cur);       // эфир живой — подключаемся заново
+}
 function step(dir) {
-  const ids = viewIds().filter((id) => phoneOk(byId.get(id)));
+  const ids = visibleIds().filter((id) => phoneOk(byId.get(id)));
   if (!ids.length) return;
   let i = cur ? ids.indexOf(cur.id) : -1;
   i = (i + dir + ids.length) % ids.length;
   startStation(byId.get(ids[i]));
 }
-$('#prev').addEventListener('click', () => step(-1));
-$('#next').addEventListener('click', () => step(1));
+$('#bPlay').addEventListener('click', togglePlay);
+$('#miniPlay').addEventListener('click', (e) => { e.stopPropagation(); togglePlay(); });
+$('#mini').addEventListener('click', () => go('player'));
+$('#bPrev').addEventListener('click', () => step(-1));
+$('#bNext').addEventListener('click', () => step(1));
+$('#bHeart').addEventListener('click', () => { if (cur) { toggleFav(cur.id); renderLists(); } });
+setInterval(() => {
+  if (S.intent && startedAt && !AUDIO.paused) {
+    const s = Math.floor((Date.now() - startedAt) / 1000);
+    $('#elapsed').textContent = [Math.floor(s / 3600), Math.floor(s / 60) % 60, s % 60].map((n) => String(n).padStart(2, '0')).join(':');
+  } else if (!startedAt) $('#elapsed').textContent = '00:00:00';
+}, 1000);
 
+// ---------- Media Session (экран блокировки) ----------
+function updateSession() {
+  if (!('mediaSession' in navigator) || !cur) return;
+  const art = (np && np.art) || logos[cur.id] || cur.logo || '../assets/icon.png';
+  navigator.mediaSession.metadata = new MediaMetadata({
+    title: np && np.title ? np.title : cur.name,
+    artist: np && np.title ? (np.artist || cur.name) : (cur.description || 'Marsik FM'),
+    album: cur.name,
+    artwork: [{ src: art, sizes: '512x512' }],
+  });
+}
 if ('mediaSession' in navigator) {
   const h = (n, f) => { try { navigator.mediaSession.setActionHandler(n, f); } catch (e) {} };
   h('play', () => { if (cur) startStation(cur); });
-  h('pause', pauseNow);
-  h('stop', stopNow);
-  h('previoustrack', () => step(-1));
-  h('nexttrack', () => step(1));
+  h('pause', pauseNow); h('stop', stopNow);
+  h('previoustrack', () => step(-1)); h('nexttrack', () => step(1));
 }
+const _renderPlayer = renderPlayer;
+renderPlayer = function () { _renderPlayer(); updateSession(); };
+
+// ---------- таймер сна ----------
+let sleepAt = 0, sleepT = 0;
+function setSleep(min) {
+  clearTimeout(sleepT); sleepAt = 0;
+  if (min) { sleepAt = Date.now() + min * 60000; sleepT = setTimeout(() => { pauseNow(); sleepAt = 0; updateSleep(); }, min * 60000); }
+  updateSleep();
+}
+function updateSleep() {
+  const b = $('#bSleep');
+  b.innerHTML = IC.timer; b.style.color = sleepAt ? 'var(--acc)' : '';
+  b.setAttribute('aria-label', sleepAt ? 'Таймер сна включён' : 'Таймер сна');
+}
+setInterval(() => { if (sleepAt) { const m = Math.max(0, Math.ceil((sleepAt - Date.now()) / 60000)); $('#bSleep').title = 'Осталось ' + m + ' мин'; } }, 15000);
+$('#bSleep').addEventListener('click', () => {
+  const box = $('#overlayBox'); box.textContent = '';
+  const h = document.createElement('h3');
+  h.textContent = sleepAt ? 'Выключится через ' + Math.max(1, Math.ceil((sleepAt - Date.now()) / 60000)) + ' мин' : 'Таймер сна';
+  box.append(h);
+  for (const [label, min] of [['Выключить таймер', 0], ['15 минут', 15], ['30 минут', 30], ['1 час', 60], ['1,5 часа', 90]]) {
+    const o = document.createElement('button'); o.className = 'opt'; o.textContent = label;
+    o.onclick = () => { setSleep(min); $('#overlay').classList.remove('on'); };
+    box.append(o);
+  }
+  $('#overlay').classList.add('on');
+});
+$('#overlay').addEventListener('click', (e) => { if (e.target.id === 'overlay') $('#overlay').classList.remove('on'); });
+
+// ---------- настройки ----------
+function renderThemes() {
+  const box = $('#themes'); box.textContent = '';
+  for (const [name, t] of Object.entries(THEMES)) {
+    const b = document.createElement('button'); b.className = 'theme' + (name === themeName ? ' on' : '');
+    const sw = document.createElement('span'); sw.className = 'sw';
+    for (const c of [t.bg2, t.acc, t.ramp[1]]) { const i = document.createElement('i'); i.style.background = c; sw.append(i); }
+    const l = document.createElement('span'); l.textContent = name;
+    b.append(sw, l);
+    b.onclick = () => { themeName = name; save('theme', name); applyTheme(); renderThemes(); };
+    box.append(b);
+  }
+}
+function renderCovers() { $('#swCovers').classList.toggle('on', covers); }
+$('#swCovers').addEventListener('click', () => { covers = !covers; save('covers', covers); renderCovers(); });
+$('#bReset').addEventListener('click', () => {
+  if (!confirm('Сбросить избранное, порядок, скрытые станции и тему на этом телефоне?')) return;
+  try { Object.keys(localStorage).filter((k) => k.startsWith('marsikfm:')).forEach((k) => localStorage.removeItem(k)); } catch (e) {}
+  location.reload();
+});
 
 // ---------- проверка, какие станции отвечают ----------
 async function probe(st) {
   const list = candidates(st);
   if (!list.length) return false;
   for (const url of list.slice(0, 2)) {
-    const ctl = new AbortController();
-    const t = setTimeout(() => ctl.abort(), 7000);
-    try {
-      await fetch(url, { mode: 'no-cors', signal: ctl.signal, cache: 'no-store' });
-      clearTimeout(t); ctl.abort(); return true;     // заголовки пришли — сервер жив
-    } catch (e) { clearTimeout(t); }
+    const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 7000);
+    try { await fetch(url, { mode: 'no-cors', signal: ctl.signal, cache: 'no-store' }); clearTimeout(t); ctl.abort(); return true; }
+    catch (e) { clearTimeout(t); }
   }
   return false;
 }
-CHECK.addEventListener('click', async () => {
-  if (CHECK.classList.contains('busy')) return;
-  CHECK.classList.add('busy');
-  const queue = stations.filter((st) => !hidden.has(st.id)); let done = 0, bad = 0;
+let checking = false;
+async function checkAll() {
+  if (checking) return; checking = true;
+  for (const b of [$('#bCheck')]) b.classList.add('busy');
+  const queue = stations.filter((s) => !hidden.has(s.id)); const total = queue.length; let done = 0, bad = 0;
   const worker = async () => {
     while (queue.length) {
-      const st = queue.shift();
-      const ok = await probe(st);
+      const st = queue.shift(); const ok = await probe(st);
       if (ok) dead.delete(st.id);
-      else {
-        const l = candidates(st);
-        dead.set(st.id, l.length && l.every((u) => UP.has(u)) ? 'nohttps' : 'down'); bad++;
-      }
-      done++; updateHint('Проверяю… ' + done + ' из ' + (stations.length - hidden.size));
-      paintAll();
+      else { const l = candidates(st); dead.set(st.id, l.length && l.every((u) => UP.has(u)) ? 'nohttps' : 'down'); bad++; }
+      done++; $('#checkRes').textContent = 'Проверяю… ' + done + ' из ' + total; paintAll();
     }
   };
   await Promise.all([worker(), worker(), worker()]);
-  CHECK.classList.remove('busy');
-  updateHint(bad ? 'Не отвечают: ' + bad + ' из ' + (stations.length - hidden.size) + ' (серым). Это на сейчас — позже могут заработать.'
-                 : 'Все ' + (stations.length - hidden.size) + ' станций отвечают.');
-});
+  $('#bCheck').classList.remove('busy'); checking = false;
+  $('#checkRes').textContent = bad ? 'Не отвечают: ' + bad + ' из ' + total + ' (серым в списке). Это на сейчас — позже могут заработать.' : 'Все ' + total + ' станций отвечают.';
+}
+$('#bCheck').addEventListener('click', () => { go('settings'); checkAll(); });
+$('#bCheck2').addEventListener('click', checkAll);
 
 // ---------- старт ----------
-fetch('../stations.json')
-  .then((r) => r.json())
-  .then((list) => {
-    stations = list.filter((s) => s && s.id && s.name && (s.url || s.urls));
-    byId = new Map(stations.map((s) => [s.id, s]));
-    const last = load('last', null) || localStorage.getItem('station');
-    if (last && byId.has(last)) cur = byId.get(last);   // подсветка последней, без автозапуска
-    render();
-  })
-  .catch(() => { HINT.textContent = 'Не удалось прочитать stations.json — открой страницу по ссылке с GitHub Pages.'; });
+$('#bCheck').innerHTML = IC.check;
+$('#bPrev').innerHTML = IC.prev; $('#bNext').innerHTML = IC.next;
+$('#sheetHead').insertAdjacentHTML('beforeend', IC.up);
+updateSleep(); renderCovers(); renderThemes(); applyTheme();
 
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js').catch(() => {});
-}
+fetch('../stations.json').then((r) => r.json()).then((list) => {
+  stations = list.filter((s) => s && s.id && s.name && (s.url || s.urls));
+  byId = new Map(stations.map((s) => [s.id, s]));
+  const last = load('last', null);
+  if (last && byId.has(last) && !hidden.has(last)) cur = byId.get(last);
+  renderLists(); renderPlayer(); renderHistory(); applyTheme();
+  go(cur ? 'player' : 'stations');
+  loadChannels();                                   // логотипы SomaFM (если каталог доступен)
+}).catch(() => { $('#hintSt').textContent = 'Не удалось прочитать stations.json — открой страницу по ссылке с GitHub Pages.'; go('stations'); });
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 </script>
 </body>
 </html>
