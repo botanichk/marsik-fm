@@ -326,20 +326,7 @@ function paintTile(frontEl, st) {
     frontEl.textContent = initials(st.name);
   }
 }
-function paintBack(backEl, st) {
-  backEl.textContent = '';
-  const isCurrent = cur && cur.id === st.id;
-  const art = isCurrent && np && np.art ? np.art : null;
-  if (art) {
-    const img = document.createElement('img');
-    img.alt = ''; img.src = art; img.loading = 'lazy';
-    img.onerror = () => { paintBackIcon(backEl); };
-    backEl.append(img);
-  } else {
-    paintBackIcon(backEl);
-  }
-}
-function paintBackIcon(backEl) {
+function paintBack(backEl) {
   backEl.textContent = '';
   const img = document.createElement('img');
   img.alt = 'Marsik FM'; img.src = '../assets/icon.png'; img.loading = 'lazy';
@@ -354,15 +341,14 @@ function makeTile(st) {
   inner.append(front, back);
   wrap.append(inner);
   paintTile(front, st);
-  paintBack(back, st);
-  // переворот карточки при касании (pointerdown работает на тач и мыши)
+  paintBack(back);
   const toggleFlip = (e) => {
     e.preventDefault();
     e.stopPropagation();
     if (e.target.closest('button, .grip')) return;
     wrap.classList.toggle('flipped');
   };
-  wrap.addEventListener('pointerdown', toggleFlip);
+  wrap.addEventListener('click', toggleFlip);
   return wrap;
 }
 function refreshCurrentTile() {
@@ -603,15 +589,24 @@ function artTile(st) {
   const back = document.createElement('div'); back.className = 'tile-face back';
   inner.append(front, back);
   wrap.append(inner);
-  paintTile(front, st);
-  paintBack(back, st);
+  // передняя сторона: обложка трека если есть, иначе лого станции / буква
+  if (np && np.art) {
+    const img = document.createElement('img');
+    img.alt = ''; img.src = np.art; img.loading = 'lazy';
+    img.onerror = () => { np.art = null; paintTile(front, st); };
+    front.append(img);
+  } else {
+    paintTile(front, st);
+  }
+  paintBack(back);
+  // тап в любом месте карточки в плеере переворачивает
   const toggleFlip = (e) => {
     e.preventDefault();
     e.stopPropagation();
     if (e.target.closest('button')) return;
     wrap.classList.toggle('flipped');
   };
-  wrap.addEventListener('pointerdown', toggleFlip);
+  wrap.addEventListener('click', toggleFlip);
   return wrap;
 }
 function renderPlayer() {
@@ -643,9 +638,18 @@ function refreshPlayerTile() {
   const wrap = art.querySelector('.tile.flip');
   if (!wrap) return;
   const front = wrap.querySelector('.front');
+  if (!front) return;
+  front.textContent = '';
+  if (np && np.art) {
+    const img = document.createElement('img');
+    img.alt = ''; img.src = np.art; img.loading = 'lazy';
+    img.onerror = () => { np.art = null; paintTile(front, cur); };
+    front.append(img);
+  } else {
+    paintTile(front, cur);
+  }
   const back = wrap.querySelector('.back');
-  if (front) paintTile(front, cur);
-  if (back) paintBack(back, cur);
+  if (back) paintBack(back);
 }
 function setState(t) { $('#state').textContent = t; if (!np || !np.title) $('#miniSub').textContent = t; }
 
