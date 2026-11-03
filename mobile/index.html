@@ -51,12 +51,12 @@
   .tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
   /* ---------- переворачивающиеся карточки станций ---------- */
-  .tile.flip { width: 56px; height: 56px; border-radius: 10px; position: relative; cursor: pointer; display: block; }
-  .tile.flip .tile-inner { position: relative; width: 100%; height: 100%; transition: transform 0.5s; transform-style: preserve-3d; }
-  .tile.flip.flipped .tile-inner { transform: rotateY(180deg); }
-  .tile.flip .tile-face { position: absolute; width: 100%; height: 100%; backface-visibility: hidden; display: flex; align-items: center; justify-content: center; border-radius: 10px; overflow: hidden; }
+  .tile.flip { width: 56px; height: 56px; border-radius: 10px; position: relative; cursor: pointer; display: block; perspective: 1000px; touch-action: manipulation; }
+  .tile.flip .tile-inner { position: relative; width: 100%; height: 100%; transition: transform 0.5s; transform-style: preserve-3d; -webkit-transform-style: preserve-3d; }
+  .tile.flip.flipped .tile-inner { transform: rotateY(180deg); -webkit-transform: rotateY(180deg); }
+  .tile.flip .tile-face { position: absolute; width: 100%; height: 100%; backface-visibility: hidden; -webkit-backface-visibility: hidden; display: flex; align-items: center; justify-content: center; border-radius: 10px; overflow: hidden; }
   .tile.flip .tile-face.front { z-index: 2; background: var(--bg); }
-  .tile.flip .tile-face.back { background: var(--acc); color: var(--on-acc); transform: rotateY(180deg); }
+  .tile.flip .tile-face.back { background: var(--acc); color: var(--on-acc); transform: rotateY(180deg); -webkit-transform: rotateY(180deg); }
   .tile.flip .tile-face.back img { width: 55%; height: 55%; object-fit: contain; display: block; }
   .tile.flip .tile-face.front img { width: 100%; height: 100%; object-fit: cover; display: block; }
   li.row .txt { flex: 1; min-width: 0; }
@@ -319,22 +319,51 @@ function paintTile(frontEl, st) {
     frontEl.textContent = initials(st.name);
   }
 }
+function paintBack(backEl, st) {
+  backEl.textContent = '';
+  const isCurrent = cur && cur.id === st.id;
+  const art = isCurrent && np && np.art ? np.art : null;
+  if (art) {
+    const img = document.createElement('img');
+    img.alt = ''; img.src = art; img.loading = 'lazy';
+    img.onerror = () => { paintBackIcon(backEl); };
+    backEl.append(img);
+  } else {
+    paintBackIcon(backEl);
+  }
+}
+function paintBackIcon(backEl) {
+  backEl.textContent = '';
+  const img = document.createElement('img');
+  img.alt = 'Marsik FM'; img.src = '../assets/icon.png'; img.loading = 'lazy';
+  backEl.append(img);
+}
 function makeTile(st) {
   const wrap = document.createElement('span');
   wrap.className = 'tile flip'; wrap.dataset.tile = st.id;
   const inner = document.createElement('span'); inner.className = 'tile-inner';
   const front = document.createElement('span'); front.className = 'tile-face front';
   const back = document.createElement('span'); back.className = 'tile-face back';
-  back.innerHTML = '<img src="../assets/emblem.png" alt="Marsik FM">';
   inner.append(front, back);
   wrap.append(inner);
   paintTile(front, st);
+  paintBack(back, st);
   wrap.addEventListener('click', (e) => {
     e.stopPropagation();
     if (e.target.closest('button, .grip')) return;
     wrap.classList.toggle('flipped');
   });
   return wrap;
+}
+function refreshCurrentTile() {
+  if (!cur) return;
+  document.querySelectorAll('.tile[data-tile]').forEach((wrap) => {
+    if (wrap.dataset.tile !== cur.id) return;
+    const front = wrap.querySelector('.front');
+    const back = wrap.querySelector('.back');
+    if (front) paintTile(front, cur);
+    if (back) paintBack(back, cur);
+  });
 }
 
 // ---------- адреса потока ----------
@@ -643,9 +672,10 @@ async function setTrack(p) {
   history = history.slice(0, 40); save('history', history);
   renderPlayer(); renderHistory(); updateSession();
   const art = await findCover(p);
-  if (art && np && np.title === p.title) { np.art = art; renderPlayer(); updateSession(); }
+  if (art && np && np.title === p.title) { np.art = art; renderPlayer(); refreshCurrentTile(); updateSession(); }
+  refreshCurrentTile();
 }
-function clearTrack() { np = null; }
+function clearTrack() { np = null; refreshCurrentTile(); }
 function renderHistory() {
   const ul = $('#sheetList'); ul.textContent = '';
   if (!history.length) { const li = document.createElement('li'); li.innerHTML = '<small>Пока пусто — треки появятся, когда станция сообщит, что играет.</small>'; ul.append(li); return; }
