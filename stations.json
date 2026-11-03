@@ -6,30 +6,6 @@
     "url": "https://radio.mixstream.nl/boogie.mp3"
   },
   {
-    "id": "beatblender",
-    "name": "Beat Blender",
-    "description": "A late night blend of deep house and downtempo.",
-    "url": "https://ice1.somafm.com/beatblender-128-mp3"
-  },
-  {
-    "id": "indiepop",
-    "name": "Indie Pop Rocks!",
-    "description": "New and classic indie pop.",
-    "url": "https://ice1.somafm.com/indiepop-128-mp3"
-  },
-  {
-    "id": "sonicuniverse",
-    "name": "Sonic Universe",
-    "description": "Avant-garde jazz from around the world.",
-    "url": "https://ice1.somafm.com/sonicuniverse-128-mp3"
-  },
-  {
-    "id": "bootliquor",
-    "name": "Boot Liquor",
-    "description": "Americana Roots music for the masses.",
-    "url": "https://ice1.somafm.com/bootliquor-128-mp3"
-  },
-  {
     "id": "181.fm_—_front_porch",
     "name": "181.FM — Front Porch",
     "description": "блюграсс",
@@ -42,51 +18,15 @@
     "url": "http://ice24.securenetsystems.net/WAMU"
   },
   {
-    "id": "radio_caprice_—_delta_blues",
-    "name": "Radio Caprice — Delta Blues",
-    "description": "",
-    "url": "http://79.120.77.11:8002/deltablues"
-  },
-  {
     "id": "outlaw_country_radio",
     "name": "Outlaw Country Radio",
     "description": "",
     "url": "https://usa17.fastcast4u.com/proxy/kievradio?mp=/1"
   },
   {
-    "id": "xrds.fm_–_the_crossroads",
-    "name": "XRDS.fm – The Crossroads",
-    "description": "",
-    "url": "http://198.58.106.133:8321/stream"
-  },
-  {
     "id": "pinguin_blues",
     "name": "Pinguin Blues",
     "description": "",
     "url": "https://samcloud.spacial.com/api/listen?sid=93462&m=sc"
-  },
-  {
-    "id": "radio_idl",
-    "name": "Radio IDL",
-    "description": "",
-    "url": "http://mp3.radioidl.com:8002/ridl.mp3"
-  },
-  {
-    "id": "secretagent",
-    "name": "Secret Agent",
-    "description": "The soundtrack for your shady dealings.",
-    "url": "https://ice1.somafm.com/secretagent-128-mp3"
-  },
-  {
-    "id": "thetrip",
-    "name": "The Trip",
-    "description": "Psychedelic/progressive space rock.",
-    "url": "https://ice1.somafm.com/thetrip-128-mp3"
-  },
-  {
-    "id": "lush",
-    "name": "Lush",
-    "description": "Sensual vocals and ambient grooves.",
-    "url": "https://ice1.somafm.com/lush-128-mp3"
   }
 ]

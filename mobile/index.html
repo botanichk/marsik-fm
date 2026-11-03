@@ -49,6 +49,16 @@
   li.row.drag { z-index: 5; background: var(--bg3); box-shadow: 0 10px 28px #000a; border-radius: 12px; opacity: 1; }
   .tile { flex: none; width: 56px; height: 56px; border-radius: 10px; overflow: hidden; display: grid; place-items: center; font-weight: 700; font-size: 20px; color: #fff; letter-spacing: .02em; position: relative; }
   .tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+  /* ---------- переворачивающиеся карточки станций ---------- */
+  .tile.flip { width: 56px; height: 56px; border-radius: 10px; position: relative; cursor: pointer; display: block; }
+  .tile.flip .tile-inner { position: relative; width: 100%; height: 100%; transition: transform 0.5s; transform-style: preserve-3d; }
+  .tile.flip.flipped .tile-inner { transform: rotateY(180deg); }
+  .tile.flip .tile-face { position: absolute; width: 100%; height: 100%; backface-visibility: hidden; display: flex; align-items: center; justify-content: center; border-radius: 10px; overflow: hidden; }
+  .tile.flip .tile-face.front { z-index: 2; background: var(--bg); }
+  .tile.flip .tile-face.back { background: var(--acc); color: var(--on-acc); transform: rotateY(180deg); }
+  .tile.flip .tile-face.back img { width: 55%; height: 55%; object-fit: contain; display: block; }
+  .tile.flip .tile-face.front img { width: 100%; height: 100%; object-fit: cover; display: block; }
   li.row .txt { flex: 1; min-width: 0; }
   li.row b { display: block; font-weight: 500; font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   li.row.now b { font-weight: 700; color: var(--acc); }
@@ -240,6 +250,15 @@ const THEMES = {
   'Nord':          { bg:'#242933', bg2:'#2e3440', bg3:'#3b4252', text:'#d8dee9', muted:'#8d98ab', acc:'#88c0d0', onAcc:'#10252c', ramp:['#88c0d0','#81a1c1','#b48ead'] },
   'Mocha':         { bg:'#181825', bg2:'#1e1e2e', bg3:'#313244', text:'#cdd6f4', muted:'#9399b2', acc:'#cba6f7', onAcc:'#1e1030', ramp:['#94e2d5','#89b4fa','#f5c2e7'] },
   'Gruvbox':       { bg:'#282828', bg2:'#32302f', bg3:'#3c3836', text:'#ebdbb2', muted:'#a89984', acc:'#fabd2f', onAcc:'#2a2000', ramp:['#b8bb26','#fabd2f','#fb4934'] },
+
+  // встроенные темы noctalia (7 шт.)
+  'Noctalia':      { bg:'#070722', bg2:'#11112d', bg3:'#11112d', text:'#f3edf7', muted:'#9bfece', acc:'#fff59b', onAcc:'#070722', ramp:['#9bfece','#a9aefe','#fd4663','#9bfece'] },
+  'Gruvbox N':     { bg:'#282828', bg2:'#3c3836', bg3:'#3c3836', text:'#fbf1c7', muted:'#83a598', acc:'#b8bb26', onAcc:'#282828', ramp:['#b8bb26','#83a598','#d3869b','#8ec07c'] },
+  'Rosé Pine N':   { bg:'#191724', bg2:'#26233a', bg3:'#26233a', text:'#e0def4', muted:'#31748f', acc:'#ebbcba', onAcc:'#191724', ramp:['#31748f','#9ccfd8','#c4a7e7','#ebbcba'] },
+  'Catppuccin N':  { bg:'#1e1e2e', bg2:'#313244', bg3:'#313244', text:'#cdd6f4', muted:'#94e2d5', acc:'#cba6f7', onAcc:'#1e1e2e', ramp:['#89d88b','#74a8fc','#f2aede','#6bd7ca'] },
+  'Tokyo-Night N': { bg:'#1a1b26', bg2:'#24283b', bg3:'#24283b', text:'#c0caf5', muted:'#9ece6a', acc:'#7aa2f7', onAcc:'#1a1b26', ramp:['#9ece6a','#7aa2f7','#bb9af7','#7dcfff'] },
+  'Nord N':        { bg:'#2e3440', bg2:'#3b4252', bg3:'#3b4252', text:'#eceff4', muted:'#5e81ac', acc:'#8fbcbb', onAcc:'#2e3440', ramp:['#a3be8c','#81a1c1','#b48ead','#8fbcbb'] },
+  'Kanagawa N':    { bg:'#1f1f28', bg2:'#2a2a37', bg3:'#2a2a37', text:'#c8c093', muted:'#7e9cd8', acc:'#76946a', onAcc:'#1f1f28', ramp:['#98bb6c','#7fb4ca','#938aa9','#7aa89f'] },
 };
 const DEFAULT_THEME = 'Marsik тёмная';
 
@@ -271,7 +290,11 @@ function applyTheme() {
   r.setProperty('--acc', t.acc); r.setProperty('--on-acc', t.onAcc);
   r.setProperty('--line', t.text + '1f');
   $('#metaTheme').setAttribute('content', t.bg);
-  document.querySelectorAll('.tile[data-tile]').forEach(paintTile);
+  document.querySelectorAll('.tile[data-tile]').forEach((wrap) => {
+    const st = byId.get(wrap.dataset.tile);
+    const front = wrap.querySelector('.front');
+    if (front && st) paintTile(front, st);
+  });
 }
 
 // ---------- плитки-логотипы ----------
@@ -280,27 +303,38 @@ function initials(name) {
   return ((w[0] || '?')[0] + (w.length > 1 ? w[1][0] : (w[0] || '')[1] || '')).toUpperCase();
 }
 function hueOf(id) { let h = 0; for (const c of id) h = (h * 31 + c.charCodeAt(0)) % 360; return h; }
-function paintTile(el) {
-  const st = byId.get(el.dataset.tile); if (!st) return;
+function paintTile(frontEl, st) {
+  if (!st) return;
   const url = st.logo || logos[st.id];
-  el.textContent = '';
-  el.style.background = '';
+  frontEl.textContent = '';
+  frontEl.style.background = '';
   if (url) {
     const img = document.createElement('img');
     img.alt = ''; img.src = url; img.loading = 'lazy';
-    img.onerror = () => { logos[st.id] = null; st.logo = null; paintTile(el); };
-    el.append(img);
+    img.onerror = () => { logos[st.id] = null; st.logo = null; paintTile(frontEl, st); };
+    frontEl.append(img);
   } else {
     const h = hueOf(st.id);
-    el.style.background = 'linear-gradient(135deg, hsl(' + h + ' 55% 42%), hsl(' + ((h + 50) % 360) + ' 60% 32%))';
-    el.textContent = initials(st.name);
+    frontEl.style.background = 'linear-gradient(135deg, hsl(' + h + ' 55% 42%), hsl(' + ((h + 50) % 360) + ' 60% 32%))';
+    frontEl.textContent = initials(st.name);
   }
 }
 function makeTile(st) {
-  const el = document.createElement('span');
-  el.className = 'tile'; el.dataset.tile = st.id;
-  paintTile(el);
-  return el;
+  const wrap = document.createElement('span');
+  wrap.className = 'tile flip'; wrap.dataset.tile = st.id;
+  const inner = document.createElement('span'); inner.className = 'tile-inner';
+  const front = document.createElement('span'); front.className = 'tile-face front';
+  const back = document.createElement('span'); back.className = 'tile-face back';
+  back.innerHTML = '<img src="../assets/emblem.png" alt="Marsik FM">';
+  inner.append(front, back);
+  wrap.append(inner);
+  paintTile(front, st);
+  wrap.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (e.target.closest('button, .grip')) return;
+    wrap.classList.toggle('flipped');
+  });
+  return wrap;
 }
 
 // ---------- адреса потока ----------
@@ -540,7 +574,7 @@ function renderPlayer() {
   $('#miniName').textContent = cur ? cur.name : '—';
   $('#miniSub').textContent = np && np.title ? (np.artist ? np.artist + ' — ' : '') + np.title : $('#state').textContent;
   $('#miniTile').replaceWith(Object.assign(cur ? makeTile(cur) : document.createElement('span'), { id: 'miniTile' }));
-  $('#miniTile').className = 'tile';
+  $('#miniTile').className = 'tile flip';
   document.body.classList.toggle('has-mini', !!cur);
   fixPlayerHeart();
   paintAll();
@@ -564,7 +598,11 @@ async function loadChannels() {
       const st = byId.get(c.id) || stations.find((s) => somaId(s) === c.id);
       if (st && !st.logo) logos[st.id] = c.largeimage || c.image || c.xlimage || null;
     }
-    document.querySelectorAll('.tile[data-tile]').forEach(paintTile);
+    document.querySelectorAll('.tile[data-tile]').forEach((wrap) => {
+    const st = byId.get(wrap.dataset.tile);
+    const front = wrap.querySelector('.front');
+    if (front && st) paintTile(front, st);
+  });
     return true;
   } catch (e) { return false; }
 }
