@@ -52,6 +52,8 @@
 
   /* ---------- переворачивающиеся карточки станций ---------- */
   li.row { overflow: visible; }
+  #art { perspective: 1000px; -webkit-perspective: 1000px; overflow: visible; }
+  #art .tile.flip { width: 100%; height: 100%; border-radius: 18px; overflow: visible; position: absolute; inset: 0; }
   .tile.flip { width: 56px; height: 56px; border-radius: 10px; position: relative; cursor: pointer; display: block; overflow: visible; touch-action: none; perspective: 1000px; -webkit-perspective: 1000px; }
   .tile.flip .tile-inner { position: relative; width: 100%; height: 100%; transform-style: preserve-3d; -webkit-transform-style: preserve-3d; }
   .tile.flip .tile-face { position: absolute; width: 100%; height: 100%; backface-visibility: hidden; -webkit-backface-visibility: hidden; border-radius: 10px; overflow: hidden; display: flex; align-items: center; justify-content: center; transition: transform 0.5s; }
@@ -593,15 +595,29 @@ function go(v) {
 let np = null;            // {artist, title, art}
 let startedAt = 0;
 
-function artTile(st) { const t = makeTile(st); return t; }
+function artTile(st) {
+  const wrap = document.createElement('div');
+  wrap.className = 'tile flip big'; wrap.dataset.tile = st.id;
+  const inner = document.createElement('div'); inner.className = 'tile-inner';
+  const front = document.createElement('div'); front.className = 'tile-face front';
+  const back = document.createElement('div'); back.className = 'tile-face back';
+  inner.append(front, back);
+  wrap.append(inner);
+  paintTile(front, st);
+  paintBack(back, st);
+  const toggleFlip = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.target.closest('button')) return;
+    wrap.classList.toggle('flipped');
+  };
+  wrap.addEventListener('pointerdown', toggleFlip);
+  return wrap;
+}
 function renderPlayer() {
   $('#pName').textContent = cur ? cur.name : 'Marsik FM';
   const art = $('#art'); art.textContent = '';
-  if (np && np.art) {
-    const img = document.createElement('img'); img.alt = ''; img.src = np.art;
-    img.onerror = () => { np.art = null; renderPlayer(); };
-    art.append(img);
-  } else if (cur) art.append(artTile(cur));
+  if (cur) art.append(artTile(cur));
   else { const t = document.createElement('span'); t.className = 'tile'; t.style.background = 'linear-gradient(135deg,var(--acc),var(--bg3))'; t.textContent = '♪'; art.append(t); }
   $('#pTitle').textContent = np && np.title ? np.title : (cur ? cur.name : 'Выбери станцию');
   $('#pSub').textContent = np && np.title ? (np.artist || '') : (cur ? (cur.description || '') : 'Открой вкладку «Станции»');
@@ -620,6 +636,16 @@ function fixPlayerHeart() {
   const b = $('#bHeart'), on = !!(cur && favs.has(cur.id));
   b.innerHTML = fillHeart(on); b.classList.toggle('on', on);
   b.setAttribute('aria-label', on ? 'Убрать из избранного' : 'В избранное');
+}
+function refreshPlayerTile() {
+  if (!cur) return;
+  const art = $('#art');
+  const wrap = art.querySelector('.tile.flip');
+  if (!wrap) return;
+  const front = wrap.querySelector('.front');
+  const back = wrap.querySelector('.back');
+  if (front) paintTile(front, cur);
+  if (back) paintBack(back, cur);
 }
 function setState(t) { $('#state').textContent = t; if (!np || !np.title) $('#miniSub').textContent = t; }
 
@@ -680,10 +706,10 @@ async function setTrack(p) {
   history = history.slice(0, 40); save('history', history);
   renderPlayer(); renderHistory(); updateSession();
   const art = await findCover(p);
-  if (art && np && np.title === p.title) { np.art = art; renderPlayer(); refreshCurrentTile(); updateSession(); }
-  refreshCurrentTile();
+  if (art && np && np.title === p.title) { np.art = art; refreshPlayerTile(); updateSession(); }
+  refreshPlayerTile();
 }
-function clearTrack() { np = null; refreshCurrentTile(); }
+function clearTrack() { np = null; refreshPlayerTile(); }
 function renderHistory() {
   const ul = $('#sheetList'); ul.textContent = '';
   if (!history.length) { const li = document.createElement('li'); li.innerHTML = '<small>Пока пусто — треки появятся, когда станция сообщит, что играет.</small>'; ul.append(li); return; }
