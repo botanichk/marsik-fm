@@ -351,7 +351,8 @@ function makeTile(st) {
   wrap.append(inner);
   paintTile(front, st);
   paintBack(back, st);
-  wrap.addEventListener('click', (e) => {
+  // pointerdown работает и на тач, и на мыши — переворачиваем карточку при касании
+  wrap.addEventListener('pointerdown', (e) => {
     e.stopPropagation();
     if (e.target.closest('button, .grip')) return;
     wrap.classList.toggle('flipped');
