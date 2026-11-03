@@ -51,7 +51,7 @@
   .tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
   /* ---------- переворачивающиеся карточки станций ---------- */
-  .tile.flip { width: 56px; height: 56px; border-radius: 10px; position: relative; cursor: pointer; display: block; perspective: 1000px; touch-action: manipulation; }
+  .tile.flip { width: 56px; height: 56px; border-radius: 10px; position: relative; cursor: pointer; display: block; perspective: 1000px; -webkit-perspective: 1000px; overflow: visible; touch-action: manipulation; }
   .tile.flip .tile-inner { position: relative; width: 100%; height: 100%; transition: transform 0.5s; transform-style: preserve-3d; -webkit-transform-style: preserve-3d; }
   .tile.flip.flipped .tile-inner { transform: rotateY(180deg); -webkit-transform: rotateY(180deg); }
   .tile.flip .tile-face { position: absolute; width: 100%; height: 100%; backface-visibility: hidden; -webkit-backface-visibility: hidden; display: flex; align-items: center; justify-content: center; border-radius: 10px; overflow: hidden; }
@@ -307,7 +307,10 @@ function paintTile(frontEl, st) {
   if (!st) return;
   const url = st.logo || logos[st.id];
   frontEl.textContent = '';
-  frontEl.style.background = '';
+  frontEl.style.background = 'var(--bg)';
+  frontEl.style.color = 'var(--text)';
+  frontEl.style.fontSize = '18px';
+  frontEl.style.fontWeight = '700';
   if (url) {
     const img = document.createElement('img');
     img.alt = ''; img.src = url; img.loading = 'lazy';
