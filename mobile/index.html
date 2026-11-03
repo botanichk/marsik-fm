@@ -51,13 +51,13 @@
   .tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
   /* ---------- переворачивающиеся карточки станций ---------- */
-  .tile.flip { width: 56px; height: 56px; border-radius: 10px; position: relative; cursor: pointer; display: block; overflow: hidden; touch-action: none; }
-  .tile.flip .tile-inner { position: relative; width: 100%; height: 100%; }
-  .tile.flip .tile-face { position: absolute; width: 100%; height: 100%; border-radius: 10px; overflow: hidden; display: flex; align-items: center; justify-content: center; transition: opacity 0.3s, transform 0.3s; backface-visibility: hidden; }
-  .tile.flip .tile-face.front { z-index: 2; background: var(--bg); opacity: 1; transform: none; }
-  .tile.flip.flipped .tile-face.front { opacity: 0; transform: rotateY(180deg); pointer-events: none; }
-  .tile.flip .tile-face.back { background: var(--acc); color: var(--on-acc); z-index: 1; opacity: 0; transform: rotateY(180deg); pointer-events: none; }
-  .tile.flip.flipped .tile-face.back { opacity: 1; transform: none; pointer-events: auto; }
+  .tile.flip { width: 56px; height: 56px; border-radius: 10px; position: relative; cursor: pointer; display: block; touch-action: none; }
+  .tile.flip .tile-inner { position: relative; width: 100%; height: 100%; transform-style: preserve-3d; }
+  .tile.flip .tile-face { position: absolute; width: 100%; height: 100%; backface-visibility: hidden; border-radius: 10px; overflow: hidden; display: flex; align-items: center; justify-content: center; transition: transform 0.5s; }
+  .tile.flip .tile-face.front { z-index: 2; background: var(--bg); transform: rotateY(0deg); }
+  .tile.flip .tile-face.back { background: var(--acc); color: var(--on-acc); transform: rotateY(180deg); }
+  .tile.flip.flipped .tile-face.front { transform: rotateY(180deg); }
+  .tile.flip.flipped .tile-face.back { transform: rotateY(0deg); z-index: 3; }
   .tile.flip .tile-face.back img { width: 55%; height: 55%; object-fit: contain; display: block; }
   .tile.flip .tile-face.front img { width: 100%; height: 100%; object-fit: cover; display: block; }
   li.row .txt { flex: 1; min-width: 0; }
@@ -343,7 +343,7 @@ function paintBackIcon(backEl) {
   backEl.append(img);
 }
 function makeTile(st) {
-  const wrap = document.createElement('span');
+  const wrap = document.createElement('div');
   wrap.className = 'tile flip'; wrap.dataset.tile = st.id;
   const inner = document.createElement('span'); inner.className = 'tile-inner';
   const front = document.createElement('span'); front.className = 'tile-face front';
