@@ -583,6 +583,8 @@ function go(v) {
 // ---------- плеер: что показываем ----------
 let np = null;            // {artist, title, art}
 let mixTimer = 0;         // таймер опроса MixStream status-json.xsl
+let icyTimer = 0;         // таймер опроса ICY-метаданных (181.FM, Pinguin Blues)
+let icyToken = 0;         // защита от устаревших запросов ICY
 let startedAt = 0;
 
 function artTile(st) {
@@ -770,6 +772,77 @@ async function fetchMixstreamTitle() {
 }
 function startMixTimer() { clearTimeout(mixTimer); mixTimer = setTimeout(function tick() { fetchMixstreamTitle().then(() => { mixTimer = setTimeout(tick, NP_EVERY_MS); }); }, NP_EVERY_MS); }
 function clearMixTimer() { clearTimeout(mixTimer); mixTimer = 0; }
+
+// ---------- метаданные ICY через браузер (181.FM, Pinguin Blues) ----------
+const ICY_STATION_URLS = new Set([
+  'https://listen.181fm.com/181-frontporch_128k.mp3',
+  'https://samcloud.spacial.com/api/listen?sid=93462&m=sc'
+]);
+
+function parseIcyStreamTitle(bytes) {
+  const text = new TextDecoder().decode(bytes);
+  const m = text.match(/StreamTitle='([^']*)'/);
+  return m ? m[1].trim() : null;
+}
+
+async function fetchIcyTitle() {
+  if (!cur || !ICY_STATION_URLS.has(cur.url) || !S.intent) return;
+  const token = ++icyToken;
+  try {
+    const r = await fetch(cur.url, {
+      headers: { 'Icy-Metadata': '1' },
+      cache: 'no-store'
+    });
+    if (token !== icyToken) return;
+    const metaint = parseInt(r.headers.get('icy-metaint') || '0', 10);
+    if (!metaint || !r.body) return;
+    const reader = r.body.getReader();
+    let consumed = 0;
+    const chunks = [];
+    let metalen = null;
+    while (true) {
+      if (token !== icyToken) return;
+      const { value, done } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      consumed += value.byteLength;
+      const all = new Uint8Array(consumed);
+      let off = 0;
+      for (const b of chunks) { all.set(b, off); off += b.byteLength; }
+      if (metalen === null) {
+        if (consumed >= metaint + 1) {
+          metalen = all[metaint] * 16;
+          if (metalen === 0) return; // нет метаблока в этом интервале, повторим по таймеру
+        } else {
+          continue;
+        }
+      }
+      if (consumed >= metaint + 1 + metalen) {
+        const metaBytes = all.slice(metaint + 1, metaint + 1 + metalen);
+        const title = parseIcyStreamTitle(metaBytes);
+        if (token !== icyToken) return;
+        if (title) {
+          const p = parsePlaying(title);
+          if (p && (!np || np.title !== p.title || np.artist !== p.artist)) setTrack(p);
+        }
+        return;
+      }
+    }
+  } catch (e) {
+    // сетевая ошибка — не стираем np, не показываем ошибку
+  }
+}
+function startIcyTimer() {
+  clearTimeout(icyTimer);
+  icyTimer = setTimeout(function tick() {
+    fetchIcyTitle().then(() => { icyTimer = setTimeout(tick, NP_EVERY_MS); });
+  }, NP_EVERY_MS);
+}
+function clearIcyTimer() {
+  clearTimeout(icyTimer);
+  icyTimer = 0;
+  icyToken++;
+}
 function renderHistory() {
   const ul = $('#sheetList'); ul.textContent = '';
   if (!history.length) { const li = document.createElement('li'); li.innerHTML = '<small>Пока пусто — треки появятся, когда станция сообщит, что играет.</small>'; ul.append(li); return; }
@@ -790,7 +863,7 @@ const S = { intent: false, token: 0, cands: [], idx: 0, retry: 0, timer: 0, stal
 function clearTimers() { clearTimeout(S.timer); clearTimeout(S.stall); }
 
 function startStation(st) {
-  S.token++; clearTimers(); clearMixTimer();
+  S.token++; clearTimers(); clearMixTimer(); clearIcyTimer();
   if (cur && cur.id !== st.id) clearTrack();
   cur = st; S.intent = true; S.retry = 0; S.idx = 0;
   S.cands = candidates(st);
@@ -804,6 +877,7 @@ function startStation(st) {
   attempt();
   pollNowPlaying();
   if (cur.id === 'mixstream_radio') startMixTimer();
+  if (ICY_STATION_URLS.has(st.url)) startIcyTimer();
 }
 function attempt() {
   const tok = S.token;
@@ -861,7 +935,7 @@ addEventListener('online', () => { if (cur && S.intent && AUDIO.paused) reconnec
 
 function pauseNow() { S.intent = false; clearTimers(); S.token++; clearTimeout(npTimer); AUDIO.pause(); setState('пауза'); renderPlayer(); }
 function stopNow() {
-  S.intent = false; clearTimers(); S.token++; clearTimeout(npTimer); clearMixTimer();
+  S.intent = false; clearTimers(); S.token++; clearTimeout(npTimer); clearMixTimer(); clearIcyTimer();
   AUDIO.pause(); AUDIO.removeAttribute('src'); AUDIO.load();
   cur = null; np = null; startedAt = 0; setState(''); renderPlayer();
 }
