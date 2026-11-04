@@ -582,6 +582,7 @@ function go(v) {
 
 // ---------- плеер: что показываем ----------
 let np = null;            // {artist, title, art}
+let mixTimer = 0;         // таймер опроса MixStream status-json.xsl
 let startedAt = 0;
 
 function artTile(st) {
@@ -684,6 +685,7 @@ function parsePlaying(s) {
 async function pollNowPlaying() {
   clearTimeout(npTimer);
   if (!cur || !S.intent) return;
+  if (cur.id === 'mixstream_radio') return;   // MixStream — свой таймер
   const sid = somaId(cur);
   if (sid) {
     if (await loadChannels() && channels && channels[sid]) {
@@ -717,6 +719,30 @@ async function setTrack(p) {
   refreshPlayerTile();
 }
 function clearTrack() { np = null; refreshPlayerTile(); }
+
+// ---------- метаданные MixStream через status-json.xsl ----------
+async function fetchMixstreamTitle() {
+  if (!cur || cur.id !== 'mixstream_radio' || !S.intent) return;
+  try {
+    const r = await fetch('https://radio.mixstream.nl/status-json.xsl', { cache: 'no-store' });
+    const j = await r.json();
+    const stats = j && j.icestats;
+    if (!stats) return;
+    const src = stats.source;
+    let list = [];
+    if (Array.isArray(src)) list = src;
+    else if (src) list = [src];           // одиночный объект вместо массива
+    const boogie = list.find((s) => s && s.listenurl && String(s.listenurl).indexOf('boogie.mp3') >= 0);
+    if (!boogie || !boogie.title) return;
+    const p = parsePlaying(boogie.title);
+    if (!p) return;
+    if (!np || np.title !== p.title || np.artist !== p.artist) setTrack(p);
+  } catch (e) {
+    // временная ошибка сети — не стираем np, не показываем ошибку
+  }
+}
+function startMixTimer() { clearTimeout(mixTimer); mixTimer = setTimeout(function tick() { fetchMixstreamTitle().then(() => { mixTimer = setTimeout(tick, NP_EVERY_MS); }); }, NP_EVERY_MS); }
+function clearMixTimer() { clearTimeout(mixTimer); mixTimer = 0; }
 function renderHistory() {
   const ul = $('#sheetList'); ul.textContent = '';
   if (!history.length) { const li = document.createElement('li'); li.innerHTML = '<small>Пока пусто — треки появятся, когда станция сообщит, что играет.</small>'; ul.append(li); return; }
@@ -737,7 +763,7 @@ const S = { intent: false, token: 0, cands: [], idx: 0, retry: 0, timer: 0, stal
 function clearTimers() { clearTimeout(S.timer); clearTimeout(S.stall); }
 
 function startStation(st) {
-  S.token++; clearTimers();
+  S.token++; clearTimers(); clearMixTimer();
   if (cur && cur.id !== st.id) clearTrack();
   cur = st; S.intent = true; S.retry = 0; S.idx = 0;
   S.cands = candidates(st);
@@ -750,6 +776,7 @@ function startStation(st) {
   }
   attempt();
   pollNowPlaying();
+  if (cur.id === 'mixstream_radio') startMixTimer();
 }
 function attempt() {
   const tok = S.token;
@@ -807,7 +834,7 @@ addEventListener('online', () => { if (cur && S.intent && AUDIO.paused) reconnec
 
 function pauseNow() { S.intent = false; clearTimers(); S.token++; clearTimeout(npTimer); AUDIO.pause(); setState('пауза'); renderPlayer(); }
 function stopNow() {
-  S.intent = false; clearTimers(); S.token++; clearTimeout(npTimer);
+  S.intent = false; clearTimers(); S.token++; clearTimeout(npTimer); clearMixTimer();
   AUDIO.pause(); AUDIO.removeAttribute('src'); AUDIO.load();
   cur = null; np = null; startedAt = 0; setState(''); renderPlayer();
 }
