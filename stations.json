@@ -3,30 +3,35 @@
     "id": "mixstream_radio",
     "name": "MixStream Radio",
     "description": "",
+    "logo": "../assets/mixstream-radio.png",
     "url": "https://radio.mixstream.nl/boogie.mp3"
   },
   {
     "id": "181.fm_—_front_porch",
     "name": "181.FM — Front Porch",
     "description": "блюграсс",
+    "logo": "../assets/front-porch-181fm.png",
     "url": "https://listen.181fm.com/181-frontporch_128k.mp3"
   },
   {
     "id": "bluegrass_country_(wamu)",
     "name": "Bluegrass Country (WAMU)",
     "description": "",
+    "logo": "../assets/blues-country.png",
     "url": "http://ice24.securenetsystems.net/WAMU"
   },
   {
     "id": "outlaw_country_radio",
     "name": "Outlaw Country Radio",
     "description": "",
+    "logo": "../assets/outlaw-country-radio.png",
     "url": "https://usa17.fastcast4u.com/proxy/kievradio?mp=/1"
   },
   {
     "id": "pinguin_blues",
     "name": "Pinguin Blues",
     "description": "",
+    "logo": "../assets/pinguin-blues.png",
     "url": "https://samcloud.spacial.com/api/listen?sid=93462&m=sc"
   }
 ]
