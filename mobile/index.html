@@ -597,7 +597,15 @@ function artTile(st) {
   if (np && np.art) {
     const img = document.createElement('img');
     img.alt = ''; img.src = np.art; img.loading = 'lazy';
-    img.onerror = () => { np.art = null; paintTile(front, st); };
+    const capturedTitle = np.title;
+    const capturedArtist = np.artist;
+    const capturedArt = np.art;
+    img.onerror = () => {
+      if (np && np.title === capturedTitle && np.artist === capturedArtist && np.art === capturedArt) {
+        np.art = null;
+        paintTile(front, st);
+      }
+    };
     front.append(img);
   } else {
     paintTile(front, st);
@@ -647,7 +655,15 @@ function refreshPlayerTile() {
   if (np && np.art) {
     const img = document.createElement('img');
     img.alt = ''; img.src = np.art; img.loading = 'lazy';
-    img.onerror = () => { np.art = null; paintTile(front, cur); };
+    const capturedTitle = np.title;
+    const capturedArtist = np.artist;
+    const capturedArt = np.art;
+    img.onerror = () => {
+      if (np && np.title === capturedTitle && np.artist === capturedArtist && np.art === capturedArt) {
+        np.art = null;
+        paintTile(front, cur);
+      }
+    };
     front.append(img);
   } else {
     paintTile(front, cur);
@@ -696,6 +712,14 @@ async function pollNowPlaying() {
   npTimer = setTimeout(pollNowPlaying, NP_EVERY_MS);
 }
 const coverCache = {};
+function testImage(url) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve(true);
+    img.onerror = () => resolve(false);
+    img.src = url;
+  });
+}
 async function findCover(p) {
   if (!covers || !p.title) return null;
   const key = (p.artist + '|' + p.title).toLowerCase();
@@ -705,8 +729,12 @@ async function findCover(p) {
     const r = await fetch('https://itunes.apple.com/search?media=music&entity=song&limit=1&term=' + encodeURIComponent((p.artist + ' ' + p.title).trim()), { signal: ctl.signal });
     clearTimeout(t);
     const j = await r.json();
-    const u = j.results && j.results[0] && j.results[0].artworkUrl100;
-    return (coverCache[key] = u ? u.replace('100x100', '600x600') : null);
+    const u100 = j.results && j.results[0] && j.results[0].artworkUrl100;
+    if (!u100) return (coverCache[key] = null);
+    const u600 = u100.replace('100x100', '600x600');
+    // Реальная проверка загрузки 600x600 (без HEAD-запроса); при ошибке — исходный 100x100
+    const art = await testImage(u600) ? u600 : u100;
+    return (coverCache[key] = art);
   } catch (e) { return (coverCache[key] = null); }
 }
 async function setTrack(p) {
@@ -716,7 +744,6 @@ async function setTrack(p) {
   renderPlayer(); renderHistory(); updateSession();
   const art = await findCover(p);
   if (art && np && np.title === p.title) { np.art = art; refreshPlayerTile(); updateSession(); }
-  refreshPlayerTile();
 }
 function clearTrack() { np = null; refreshPlayerTile(); }
 
