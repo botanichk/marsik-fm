@@ -81,6 +81,8 @@
   .hrow span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .btn { background: var(--bg3); border-radius: 12px; padding: 10px 16px; }
   .btn.acc { background: var(--acc); color: var(--on-acc); font-weight: 600; }
+  .btns { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+  .btns .btn { min-height: 44px; }
 
   /* ---------- плеер ---------- */
   #v-player { background: radial-gradient(120% 55% at 50% 0%, color-mix(in srgb, var(--acc) 16%, var(--bg)) 0%, var(--bg) 70%); }
@@ -149,6 +151,16 @@
   #overlay .box h3 { margin: 4px 0 10px; text-align: center; font-size: 16px; }
   #overlay .opt { width: 100%; padding: 14px; border-radius: 12px; text-align: center; font-size: 17px; }
   #overlay .opt.on { color: var(--acc); font-weight: 600; }
+  #overlay .box { max-height: 90vh; overflow-y: auto; }
+  #overlay .field { display: block; margin-bottom: 10px; }
+  #overlay .field span { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+  #overlay .field input { width: 100%; min-height: 44px; background: var(--bg3); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 12px; font: inherit; }
+  #overlay .field input:focus { outline: 2px solid var(--acc); outline-offset: -1px; }
+  #overlay .row2 { display: flex; gap: 10px; margin-top: 6px; }
+  #overlay .row2 .btn { flex: 1; min-height: 44px; }
+  #overlay .wide { width: 100%; min-height: 44px; margin-top: 10px; }
+  .fmsg { font-size: 13px; margin: 8px 0 0; min-height: 18px; color: var(--muted); }
+  .fmsg.bad { color: var(--bad); } .fmsg.good { color: var(--acc); } .fmsg.warn { color: var(--warn); }
 </style>
 </head>
 <body class="on-player">
@@ -173,6 +185,7 @@
 <section class="view" id="v-stations">
   <div class="head">
     <button class="side" id="bCheck" aria-label="Проверить станции"></button>
+    <button class="side" id="bAdd" aria-label="Добавить свою станцию"></button>
     <h1>Станции</h1>
     <button class="side" id="bEdit" aria-label="Править список"></button>
   </div>
@@ -202,6 +215,11 @@
   <div class="card"><h3>Станции</h3>
     <button class="btn acc" id="bCheck2">Проверить, какие отвечают</button>
     <div class="res" id="checkRes"></div>
+    <div class="btns">
+      <button class="btn" id="bExport">Скопировать мои станции</button>
+      <button class="btn" id="bImport">Вставить станции</button>
+    </div>
+    <div class="res" id="customRes"></div>
     <div id="hiddenSet"></div>
   </div>
   <div class="card"><h3>О приложении</h3>
@@ -241,6 +259,8 @@ const IC = {
   timer: '<svg viewBox="0 0 24 24"><circle cx="12" cy="13.5" r="7.5"/><path d="M12 9.5v4l2.5 1.5M9.5 3h5"/></svg>',
   up: '<svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg>',
   edit: '<svg viewBox="0 0 24 24"><path d="M4 20h4L19.5 8.5l-4-4L4 16z"/></svg>',
+  plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
+  trash: '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg>',
   check: '<svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.4-5.7M20 4v5h-5"/></svg>',
   x: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
   done: '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
@@ -272,9 +292,11 @@ const DEFAULT_THEME = 'Marsik тёмная';
 // ---------- хранилище (на этом телефоне) ----------
 const KEY = (k) => 'marsikfm:' + k;
 function load(k, def) { try { const v = localStorage.getItem(KEY(k)); return v == null ? def : JSON.parse(v); } catch (e) { return def; } }
-function save(k, v) { try { localStorage.setItem(KEY(k), JSON.stringify(v)); } catch (e) {} }
+function save(k, v) { try { localStorage.setItem(KEY(k), JSON.stringify(v)); return true; } catch (e) { return false; } }
 
 let stations = [], byId = new Map();
+let custom = load('custom', []);      // свои станции (marsikfm:custom)
+let repoStations = [];                // станции из stations.json
 let favs = new Set(load('fav', []));
 let order = load('order', []);
 let good = load('good', {});
@@ -324,7 +346,7 @@ function paintTile(frontEl, st) {
     img.onerror = () => { logos[st.id] = null; st.logo = null; paintTile(frontEl, st); };
     frontEl.append(img);
   } else {
-    const h = hueOf(st.id);
+    const h = hueOf(st.custom ? st.name + ' ' + (st.description || '') : st.id);
     frontEl.style.background = 'linear-gradient(135deg, hsl(' + h + ' 55% 42%), hsl(' + ((h + 50) % 360) + ' 60% 32%))';
     frontEl.textContent = initials(st.name);
   }
@@ -393,6 +415,72 @@ function candidates(st) {
 const phoneOk = (st) => candidates(st).length > 0;
 const somaId = (st) => { const m = /ice\d+\.somafm\.com\/([a-z0-9]+)-/.exec([].concat(st.urls || st.url || [])[0] || ''); return m ? m[1] : null; };
 
+// ---------- свои станции (marsikfm:custom) ----------
+const CUSTOM_MAX = 50;
+const LIM = { name: 60, desc: 120, url: 500 };
+const newCustomId = () => 'u_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+
+// Проверка адреса по п.5: только https, http у домена поднимаем, http у IP — отказ, плейлист — предупреждение
+function parseStreamUrl(raw) {
+  let s = String(raw || '').trim();
+  if (!s) return { error: 'Впиши адрес потока.' };
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(s)) s = 'https://' + s;
+  let u;
+  try { u = new URL(s); } catch (e) { return { error: 'Это не похоже на адрес. Пример: https://example.com/stream.mp3' }; }
+  if (!/^[a-z0-9._-]+$/i.test(u.hostname) && !/^\[[0-9a-f:.]+\]$/i.test(u.hostname)) return { error: 'Адрес сервера выглядит неправильно — проверь домен.' };
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return { error: 'Нужен адрес http(s)-потока.' };
+  const isIp = /^\d{1,3}(\.\d{1,3}){3}$/.test(u.hostname) || u.hostname.includes(':');
+  if (u.protocol === 'http:' && isIp) return { error: 'С http-адресом из цифр (IP) браузер со защищённой страницы поток не проиграет. Нужен https или имя домена.' };
+  let warn = '', playlist = false;
+  if (u.protocol === 'http:') { u.protocol = 'https:'; warn = 'Заменил на https:// — сервер может не поддерживать защищённое соединение.'; }
+  if (/\.(pls|m3u|m3u8|asx)$/i.test(u.pathname)) { warn = (warn ? warn + ' ' : '') + 'Похоже на ссылку на плейлист, а нужна прямая ссылка на поток.'; playlist = true; }
+  return { url: u.href, warn, playlist };
+}
+
+// Данные из localStorage — недоверенные: чистим и обрезаем при загрузке
+function sanitizeCustom(list) {
+  if (!Array.isArray(list)) return [];
+  const out = [], seen = new Set();
+  for (const s of list) {
+    if (!s || typeof s !== 'object') continue;
+    const name = String(s.name || '').trim().slice(0, LIM.name);
+    const v = parseStreamUrl(String(s.url || ''));
+    if (!name || v.error) continue;
+    let id = typeof s.id === 'string' && /^u_[a-z0-9]+$/i.test(s.id) ? s.id : '';
+    if (!id || seen.has(id)) id = newCustomId();
+    seen.add(id);
+    out.push({
+      id, name, url: v.url,
+      description: String(s.description || '').trim().slice(0, LIM.desc),
+      logo: String(s.logo || '').trim().slice(0, LIM.url),
+      custom: true,
+    });
+    if (out.length >= CUSTOM_MAX) break;
+  }
+  return out;
+}
+
+function mountStations(list) {
+  if (list) repoStations = list.filter((s) => s && s.id && s.name && (s.url || s.urls));
+  stations = repoStations.concat(custom);
+  byId = new Map(stations.map((s) => [s.id, s]));
+}
+// адрес → станция, для поиска дублей (свои + репозиторий, с учётом https-подъёма)
+function streamUrlMap() {
+  const m = new Map();
+  for (const s of stations) for (const u of candidates(s)) if (!m.has(u)) m.set(u, s);
+  return m;
+}
+function removeCustom(id) {
+  custom = custom.filter((s) => s.id !== id);
+  save('custom', custom);
+  favs.delete(id); save('fav', [...favs]);
+  hidden.delete(id); save('hidden', [...hidden]);
+  if (order.includes(id)) { order = order.filter((x) => x !== id); save('order', order); }
+  if (cur && cur.id === id) stopNow();
+  mountStations(); renderLists(); renderPlayer(); renderCustomRes();
+}
+
 // ---------- порядок ----------
 function orderedIds() {
   const ids = stations.map((s) => s.id), seen = new Set(), out = [];
@@ -421,10 +509,24 @@ function makeRow(st) {
   const badge = document.createElement('small'); badge.className = 'badge';
   txt.append(b, small, badge);
   const act = document.createElement('button');
-  if (editing) { act.className = 'ibtn del'; act.innerHTML = IC.x; act.setAttribute('aria-label', 'Скрыть станцию'); act.dataset.act = 'hide'; }
+  if (editing) {
+    if (st.custom) {
+      act.className = 'ibtn del'; act.innerHTML = IC.trash;
+      act.setAttribute('aria-label', 'Удалить станцию насовсем'); act.dataset.act = 'del';
+    } else {
+      act.className = 'ibtn del'; act.innerHTML = IC.x;
+      act.setAttribute('aria-label', 'Скрыть станцию'); act.dataset.act = 'hide';
+    }
+  }
   else { act.className = 'ibtn'; act.innerHTML = fillHeart(favs.has(st.id)); act.setAttribute('aria-label', 'Избранное'); act.dataset.act = 'fav'; }
   li.append(makeTile(st), txt, act);
   if (editing) {
+    if (st.custom) {
+      const ed = document.createElement('button');
+      ed.className = 'ibtn'; ed.innerHTML = IC.edit;
+      ed.setAttribute('aria-label', 'Изменить станцию'); ed.dataset.act = 'edit';
+      li.append(ed);
+    }
     const grip = document.createElement('span'); grip.className = 'grip'; grip.innerHTML = IC.grip; grip.dataset.act = 'grip';
     li.append(grip);
   }
@@ -450,8 +552,8 @@ function renderLists() {
   $('#secFav').innerHTML = IC.heart.replace('<svg', '<svg style="fill:currentColor"') + '<span>Избранное</span>';
   $('#secAll').innerHTML = IC.radio + '<span>Станции</span>';
   $('#secFav').hidden = $('#listFav').hidden = !ids.fav.length;
-  const hint = editing ? 'Правка: ✕ скрывает станцию на этом телефоне (на компьютере она останется), значок справа — перетащить. Скрытые можно вернуть ниже.'
-    : ids.all.length + ids.fav.length + ' станций · ♥ в избранное · ✎ — порядок и скрытие';
+  const hint = editing ? 'Правка: ✕ скрывает станцию на этом телефоне (на компьютере она останется), значок справа — перетащить. У своих станций корзина — удалить насовсем, карандаш — изменить. Скрытые можно вернуть ниже.'
+    : ids.all.length + ids.fav.length + ' станций · + — добавить свою · ♥ в избранное · ✎ — порядок и скрытие';
   $('#hintSt').textContent = hint;
   $('#hintFav').textContent = ids.fav.length ? (editing ? 'Перетащи за значок справа, чтобы изменить порядок.' : '') : 'Пока пусто — нажми ♥ у станции, и она появится здесь.';
   for (const b of [$('#bEdit'), $('#bEdit2')]) { b.innerHTML = editing ? IC.done : IC.edit; b.classList.toggle('on', editing); }
@@ -504,6 +606,11 @@ function onListClick(e) {
     if (navigator.vibrate) navigator.vibrate(8);
     renderLists(); return;
   }
+  if (act && act.dataset.act === 'del') {
+    if (confirm('Удалить станцию «' + st.name + '» насовсем? С этого телефона она пропадёт.')) removeCustom(st.id);
+    return;
+  }
+  if (act && act.dataset.act === 'edit') { openStationForm(st); return; }
   if (act && act.dataset.act === 'fav') {
     toggleFav(st.id); renderLists(); return;
   }
@@ -1008,7 +1115,8 @@ $('#bSleep').addEventListener('click', () => {
   }
   $('#overlay').classList.add('on');
 });
-$('#overlay').addEventListener('click', (e) => { if (e.target.id === 'overlay') $('#overlay').classList.remove('on'); });
+$('#overlay').addEventListener('click', (e) => { if (e.target.id === 'overlay') closeOverlay(); });
+function closeOverlay() { probeId++; stopProbe(); $('#overlay').classList.remove('on'); }
 
 // ---------- настройки ----------
 function renderThemes() {
@@ -1027,8 +1135,208 @@ function renderCovers() { $('#swCovers').classList.toggle('on', covers); }
 $('#swCovers').addEventListener('click', () => { covers = !covers; save('covers', covers); renderCovers(); });
 $('#bReset').addEventListener('click', () => {
   if (!confirm('Сбросить избранное, порядок, скрытые станции и тему на этом телефоне?')) return;
-  try { Object.keys(localStorage).filter((k) => k.startsWith('marsikfm:')).forEach((k) => localStorage.removeItem(k)); } catch (e) {}
+  const dropCustom = custom.length ? confirm('Удалить и свои станции (' + custom.length + ' шт.)? «Отмена» — оставить их.') : false;
+  try {
+    Object.keys(localStorage)
+      .filter((k) => k.startsWith('marsikfm:') && (dropCustom || k !== KEY('custom')))
+      .forEach((k) => localStorage.removeItem(k));
+  } catch (e) {}
   location.reload();
+});
+
+// ---------- свои станции: форма, проверка потока, копия и вставка ----------
+let formEditId = null, probeAudio = null, probeId = 0;
+
+function stopProbe() {
+  if (!probeAudio) return;
+  try { probeAudio.pause(); probeAudio.removeAttribute('src'); probeAudio.load(); } catch (e) {}
+  probeAudio = null;
+}
+// Пробное подключение без звука: отдельный <audio>, чтобы не мешать играющему
+function checkStream(url) {
+  stopProbe();
+  return new Promise((resolve) => {
+    const a = new Audio();
+    a.muted = true; a.volume = 0; a.preload = 'none';
+    probeAudio = a;
+    let done = false;
+    const fin = (ok, msg) => {
+      if (done) return; done = true;
+      clearTimeout(timer);
+      if (probeAudio === a) stopProbe();
+      resolve({ ok, msg });
+    };
+    const timer = setTimeout(() => fin(false, 'не отвечает'), 10000);
+    a.addEventListener('playing', () => fin(true, 'играет'));
+    a.addEventListener('error', () => {
+      const code = a.error && a.error.code;
+      fin(false, code === 4 ? 'браузер не может это проиграть' : 'не отвечает');
+    });
+    a.src = url;
+    const p = a.play();
+    if (p && p.catch) p.catch((err) => {
+      fin(false, err && err.name === 'NotSupportedError' ? 'браузер не может это проиграть' : 'не отвечает');
+    });
+  });
+}
+
+function renderCustomRes() {
+  const el = $('#customRes'); if (!el) return;
+  el.textContent = custom.length
+    ? 'Своих станций: ' + custom.length + ' из ' + CUSTOM_MAX + '.'
+    : 'Своих станций пока нет — добавь кнопкой «+» на вкладке «Станции».';
+}
+
+function openStationForm(st) {
+  formEditId = st ? st.id : null;
+  probeId++; stopProbe();
+  const box = $('#overlayBox'); box.textContent = '';
+  const h = document.createElement('h3'); h.textContent = st ? 'Изменить станцию' : 'Своя станция';
+  box.append(h);
+  const mk = (text, value, ph, max, type) => {
+    const l = document.createElement('label'); l.className = 'field';
+    const s = document.createElement('span'); s.textContent = text;
+    const i = document.createElement('input');
+    i.type = type || 'text'; i.value = value || ''; i.placeholder = ph || '';
+    i.maxLength = max; i.autocomplete = 'off';
+    l.append(s, i); box.append(l);
+    return i;
+  };
+  const iName = mk('Название', st && st.name, 'Например: Мой ламповый джаз', LIM.name);
+  const iUrl = mk('Адрес потока', st && st.url, 'https://example.com/stream.mp3', LIM.url, 'url');
+  const iDesc = mk('Описание', st && st.description, 'Необязательно', LIM.desc);
+  const iLogo = mk('Адрес картинки', st && st.logo, 'Необязательно, https://…/logo.png', LIM.url, 'url');
+  const msg = document.createElement('div'); msg.className = 'fmsg'; box.append(msg);
+  let offerBtn = null, warned = false;
+  const say = (text, cls) => {
+    if (offerBtn) { offerBtn.remove(); offerBtn = null; }
+    msg.className = 'fmsg' + (cls ? ' ' + cls : '');
+    msg.textContent = text || '';
+  };
+  const offerOpen = (other) => {
+    const b = document.createElement('button');
+    b.className = 'btn acc wide'; b.textContent = 'Открыть «' + other.name + '»';
+    b.onclick = () => { closeOverlay(); startStation(byId.get(other.id) || other); };
+    offerBtn = b; box.append(b);
+  };
+
+  // http у домена → сразу показываем https, предупреждаем
+  iUrl.addEventListener('change', () => {
+    const v = parseStreamUrl(iUrl.value);
+    if (v.error) { say(v.error, 'bad'); return; }
+    if (v.url !== iUrl.value.trim()) iUrl.value = v.url;
+    say(v.warn || '', v.warn ? 'warn' : '');
+  });
+
+  const row = document.createElement('div'); row.className = 'row2';
+  const bTry = document.createElement('button'); bTry.className = 'btn'; bTry.textContent = 'Проверить';
+  const bSave = document.createElement('button'); bSave.className = 'btn acc'; bSave.textContent = 'Сохранить';
+  row.append(bTry, bSave); box.append(row);
+  const bCancel = document.createElement('button'); bCancel.className = 'btn wide'; bCancel.textContent = 'Отмена'; box.append(bCancel);
+  bCancel.onclick = closeOverlay;
+
+  bTry.onclick = async () => {
+    const v = parseStreamUrl(iUrl.value);
+    if (v.error) { say(v.error, 'bad'); iUrl.focus(); return; }
+    iUrl.value = v.url;
+    const mine = ++probeId;
+    say('Подключаюсь…');
+    bTry.disabled = true;
+    const r = await checkStream(v.url);
+    bTry.disabled = false;
+    if (mine !== probeId) return;                       // форма закрыта или проверка перезапущена
+    say(r.ok ? 'Играет — можно сохранять.' : 'Не получилось: ' + r.msg + '. Сохранить всё равно можно.', r.ok ? 'good' : 'warn');
+  };
+
+  bSave.onclick = () => {
+    const name = iName.value.trim(), desc = iDesc.value.trim(), logo = iLogo.value.trim();
+    if (!name) { say('Впиши название.', 'bad'); iName.focus(); return; }
+    if (desc.length > LIM.desc) { say('Описание длиннее ' + LIM.desc + ' символов.', 'bad'); return; }
+    const v = parseStreamUrl(iUrl.value);
+    if (v.error) { say(v.error, 'bad'); iUrl.focus(); return; }
+    if (logo && !/^https:\/\//i.test(logo)) { say('Адрес картинки должен начинаться с https://', 'bad'); return; }
+    if (v.playlist && !warned) {
+      warned = true; iUrl.value = v.url;
+      say(v.warn + ' Нажми «Сохранить» ещё раз, если всё равно сохранить.', 'warn');
+      return;
+    }
+    const dup = streamUrlMap().get(v.url);
+    if (dup && dup.id !== formEditId) {
+      say('Такая станция уже есть: «' + dup.name + '». Дубль не нужен.', 'bad');
+      offerOpen(dup);
+      return;
+    }
+    const data = { name, url: v.url, description: desc, logo };
+    let target;
+    if (formEditId) {
+      const i = custom.findIndex((s) => s.id === formEditId);
+      if (i < 0) { say('Станция не найдена — закрой форму и попробуй снова.', 'bad'); return; }
+      target = custom[i] = Object.assign({}, custom[i], data);
+    } else {
+      if (custom.length >= CUSTOM_MAX) { say('Уже ' + CUSTOM_MAX + ' своих станций — больше нельзя.', 'bad'); return; }
+      target = Object.assign({ id: newCustomId(), custom: true }, data);
+      custom.push(target);
+    }
+    if (!save('custom', custom)) {
+      if (!formEditId) custom.pop();
+      say('Браузер не даёт сохранить (приватный режим?). Станция не сохранится.', 'bad');
+      return;
+    }
+    const wasUrl = cur && cur.id === target.id ? cur.url : '';
+    closeOverlay();
+    mountStations(); renderCustomRes();
+    if (cur && cur.id === target.id) {
+      cur = byId.get(target.id) || target;
+      if (wasUrl && wasUrl !== target.url && S.intent) startStation(cur);
+    }
+    renderLists(); renderPlayer();
+  };
+
+  $('#overlay').classList.add('on');
+}
+
+$('#bAdd').addEventListener('click', () => openStationForm(null));
+
+$('#bExport').addEventListener('click', async () => {
+  if (!custom.length) { $('#customRes').textContent = 'Своих станций пока нет — копировать нечего.'; return; }
+  // Текст: одна станция на строку, поля через « | » (описание с «|» обрежется — принятая простота)
+  const text = custom.map((s) => [s.name, s.url, s.description, s.logo].join(' | ').replace(/(\s*\|\s*)+$/, '')).join('\n');
+  try {
+    await navigator.clipboard.writeText(text);
+    $('#customRes').textContent = 'Скопировано ' + custom.length + ' шт. Сохрани текст в заметках — это резервная копия.';
+  } catch (e) {
+    prompt('Скопируй текст вручную и сохрани в заметках:', text);
+  }
+});
+
+$('#bImport').addEventListener('click', async () => {
+  let text = '';
+  try { text = await navigator.clipboard.readText(); } catch (e) {}
+  if (!text || !text.trim()) text = prompt('Вставь текст со станциями (одна станция на строку, поля через «|»):', '') || '';
+  if (!text.trim()) return;
+  const known = streamUrlMap();
+  let added = 0, skipped = 0;
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const p = line.split('|').map((x) => x.trim());
+    const name = (p[0] || '').slice(0, LIM.name);
+    const v = parseStreamUrl(p[1] || '');
+    if (!name || v.error || known.has(v.url) || custom.length >= CUSTOM_MAX) { skipped++; continue; }
+    const st = {
+      id: newCustomId(), name, url: v.url,
+      description: (p[2] || '').slice(0, LIM.desc),
+      logo: /^https?:\/\//i.test(p[3] || '') ? p[3].slice(0, LIM.url) : '',
+      custom: true,
+    };
+    custom.push(st); known.set(v.url, st); added++;
+  }
+  if (added && !save('custom', custom)) {
+    custom = custom.slice(0, custom.length - added);
+    $('#customRes').textContent = 'Браузер не даёт сохранить — станции не добавлены.';
+    return;
+  }
+  mountStations(); renderLists(); renderPlayer(); renderCustomRes();
+  $('#customRes').textContent = 'Добавлено: ' + added + (skipped ? ' · пропущено: ' + skipped + ' (дубли или неверный формат)' : '');
 });
 
 // ---------- проверка, какие станции отвечают ----------
@@ -1064,19 +1372,28 @@ $('#bCheck2').addEventListener('click', checkAll);
 
 // ---------- старт ----------
 $('#bCheck').innerHTML = IC.check;
+$('#bAdd').innerHTML = IC.plus;
 $('#bPrev').innerHTML = IC.prev; $('#bNext').innerHTML = IC.next;
 $('#sheetHead').insertAdjacentHTML('beforeend', IC.up);
 updateSleep(); renderCovers(); renderThemes(); applyTheme();
+custom = sanitizeCustom(custom);
+renderCustomRes();
 
-fetch('../stations.json').then((r) => r.json()).then((list) => {
-  stations = list.filter((s) => s && s.id && s.name && (s.url || s.urls));
-  byId = new Map(stations.map((s) => [s.id, s]));
+function afterMount() {
   const last = load('last', null);
   if (last && byId.has(last) && !hidden.has(last)) cur = byId.get(last);
   renderLists(); renderPlayer(); renderHistory(); applyTheme();
   go(cur ? 'player' : 'stations');
+}
+fetch('../stations.json').then((r) => r.json()).then((list) => {
+  mountStations(list);
+  afterMount();
   loadChannels();                                   // логотипы SomaFM (если каталог доступен)
-}).catch(() => { $('#hintSt').textContent = 'Не удалось прочитать stations.json — открой страницу по ссылке с GitHub Pages.'; go('stations'); });
+}).catch(() => {
+  mountStations([]);                                // свои станции всё равно показываем
+  afterMount();
+  $('#hintSt').textContent = 'Станции из репозитория не загрузились. Свои станции на месте — открой страницу по ссылке с GitHub Pages.';
+});
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 </script>
