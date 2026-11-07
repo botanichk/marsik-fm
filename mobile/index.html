@@ -357,7 +357,7 @@ let hidden = new Set(load('hidden', []));
 let themeName = load('theme', DEFAULT_THEME);
 let covers = load('covers', true);
 // спецэффекты: по умолчанию включены, кроме случая «меньше движения» в системе
-let fx = load('fx', !matchMedia('(prefers-reduced-motion: reduce)').matches);
+let fx = load('fx', true);
 let history = load('history', []);
 let editing = false;
 let view = 'stations';
