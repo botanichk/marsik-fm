@@ -220,6 +220,22 @@
     transition: background-color .35s ease, color .35s ease, border-color .35s ease;
   }
 
+  /* спектр под обложкой — полосы из настоящего звука */
+  #spec { display: flex; align-items: flex-end; justify-content: center; gap: 2px;
+          height: 0; margin: 0 6px; overflow: hidden; opacity: 0;
+          transition: height .35s ease, opacity .35s ease, margin .35s ease; }
+  #spec.on { height: 46px; margin: 10px 6px 0; opacity: 1; }
+  #spec i {
+    flex: 1 1 0; min-width: 2px; max-width: 7px; height: 4%; border-radius: 2px 2px 0 0;
+    background: linear-gradient(to top, color-mix(in srgb, var(--acc) 55%, transparent), var(--acc));
+    transform-origin: bottom; transition: height .07s linear, opacity .3s;
+    will-change: height;
+  }
+  #spec i.tall { background: linear-gradient(to top, var(--acc), var(--text)); }
+  body.fx #spec i { box-shadow: 0 0 8px color-mix(in srgb, var(--acc) 30%, transparent); }
+  #specHint { text-align: center; color: var(--muted); font-size: 11px; margin: 4px 0 0; min-height: 0; opacity: .7; }
+  #specHint:empty { display: none; }
+
   /* играющая станция — бегущая полоска */
   body.fx li.row.now::before {
     content: ""; position: absolute; left: 8px; right: 8px; bottom: -1px; height: 2px; border-radius: 1px;
@@ -244,6 +260,8 @@
   <p id="pSub"></p>
   <div class="prog" id="prog"><div class="line"></div>
     <div class="times"><span id="elapsed">00:00:00</span><span>LIVE</span></div></div>
+  <div id="spec" aria-hidden="true"></div>
+  <div id="specHint"></div>
   <div class="ctl">
     <button class="ibtn" id="bHeart" aria-label="В избранное"></button>
     <button class="ibtn" id="bPrev" aria-label="Предыдущая"></button>
@@ -284,6 +302,7 @@
   <div class="card"><h3>Плеер</h3>
     <div class="line"><div>Обложки треков<small>ищутся в интернете (Apple iTunes) по названию трека</small></div><button class="switch" id="swCovers" aria-label="Обложки треков"></button></div>
     <div class="line"><div>Спецэффекты<small>свечение обложки, звёзды за ней, плавные переходы</small></div><button class="switch" id="swFx" aria-label="Спецэффекты"></button></div>
+    <div class="line"><div>Спектр по звуку<small>полосы прыгают от реальной музыки, а не по таймеру</small></div><button class="switch" id="swSpec" aria-label="Спектр по звуку"></button></div>
   </div>
   <div class="card"><h3>Станции</h3>
     <button class="btn acc" id="bCheck2">Проверить, какие отвечают</button>
@@ -311,7 +330,7 @@
   <button data-go="settings" aria-label="Настройки"></button>
 </nav>
 <div id="overlay"><div class="box" id="overlayBox"></div></div>
-<audio id="audio" preload="none"></audio>
+<audio id="audio" preload="none" crossorigin="anonymous"></audio>
 
 <script>
 'use strict';
@@ -384,6 +403,87 @@ let view = 'stations';
 const dead = new Map();               // id → 'down' | 'nohttps' (только на сессию)
 const UP = new Set();                 // адреса, поднятые нами с http до https
 const logos = {};                     // id → адрес логотипа (из каталога SomaFM)
+
+// ---------- спектр по звуку (Web Audio, только там, где CORS открыт) ----------
+let spec = load('spec', true);
+let specNodes = null;    // { ctx, analyser, data } — создаётся один раз, по жесту пользователя
+let specFailed = false;   // если не получилось (iOS/старые WebView) — спектр просто выключён
+let specZeroT = 0, specWarned = false, specT = 0;
+const SPEC_BARS = 36;
+
+function specBuildBars() {
+  const el = $('#spec');
+  if (el && !el.childElementCount) el.innerHTML = Array.from({ length: SPEC_BARS }, () => '<i></i>').join('');
+}
+function setSpecHint(t) { const h = $('#specHint'); if (h) h.textContent = t; }
+
+function specEnsure() {
+  if (specNodes || specFailed) return specNodes;
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) throw new Error('no AudioContext');
+    const ctx = new AC();
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 128;               // 64 бина — хватает для 36 полос
+    analyser.smoothingTimeConstant = 0.75;
+    analyser.minDecibels = -80; analyser.maxDecibels = -32;
+    const src = ctx.createMediaElementSource(AUDIO);
+    src.connect(analyser);
+    analyser.connect(ctx.destination);    // без этого звук пропадёт
+    specNodes = { ctx, analyser, data: new Uint8Array(analyser.frequencyBinCount) };
+    specBuildBars();
+    // создание по жесту пользователя — контекст можно разблокировать сразу
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    return specNodes;
+  } catch (e) {
+    specFailed = true;
+    setSpecHint('Спектр на этом устройстве недоступен — звук идёт как обычно.');
+    renderSpec();
+    return null;
+  }
+}
+const specBars = () => { const el = $('#spec'); return el ? el.children : []; };
+
+function specLoop(now) {
+  requestAnimationFrame(specLoop);
+  if (!spec || specFailed || !specNodes) return;
+  if (document.hidden || view !== 'player') return;
+  if (now - specT < 33) return;           // ~30 кадров/с
+  specT = now;
+  const { analyser, data } = specNodes;
+  analyser.getByteFrequencyData(data);
+  const bars = specBars();
+  let sum = 0, maxBin = 1;
+  for (let j = 1; j < 48 && j < data.length; j++) if (data[j] > maxBin) maxBin = data[j];
+  // медленный затухающий пик — полосы дышат в полный диапазон даже на громких потоках
+  specNodes.peak = Math.max(maxBin, (specNodes.peak || 60) - 2.2);
+  for (let i = 0; i < SPEC_BARS; i++) {
+    // логарифмическая разбивка: низы занимают больше полос, как слышим
+    const lo = Math.floor(Math.pow(i / SPEC_BARS, 2.2) * 44) + 1;
+    const hi = Math.max(lo + 1, Math.floor(Math.pow((i + 1) / SPEC_BARS, 2.2) * 44) + 1);
+    let m = 0;
+    for (let j = lo; j < hi && j < data.length; j++) { if (data[j] > m) m = data[j]; sum += data[j]; }
+    const h = Math.max(4, Math.min(100, (m / specNodes.peak) * 100));
+    if (bars[i]) { bars[i].style.height = h + '%'; bars[i].classList.toggle('tall', h > 62); }
+  }
+  // станция играет, а частотные данные нулевые — значит, CORS не пропускает звук
+  if (S.intent && !AUDIO.paused) {
+    if (sum < 60) {
+      if (!specZeroT) specZeroT = now;
+      else if (!specWarned && now - specZeroT > 6000) {
+        specWarned = true;
+        setSpecHint('Полосы не двигаются: эта станция не открыта для анализа звука.');
+      }
+    } else { specZeroT = 0; }
+  }
+}
+
+function renderSpec() {
+  const on = spec && !specFailed;
+  $('#swSpec').classList.toggle('on', on);
+  $('#spec').classList.toggle('on', on);
+  if (!on) setSpecHint('');
+}
 
 // ---------- спецэффекты: звёзды за обложкой (canvas, 30 кадров/с) ----------
 const FX = { el: null, ctx: null, stars: [], t: 0, dpr: 1 };
@@ -1203,6 +1303,7 @@ function clearTimers() { clearTimeout(S.timer); clearTimeout(S.stall); }
 
 function startStation(st) {
   S.token++; clearTimers(); clearMixTimer(); clearIcyTimer();
+  if (spec && !specNodes && !specFailed) specEnsure();   // создаём анализатор по жесту пользователя
   if (cur && cur.id !== st.id) clearTrack();
   cur = st; S.intent = true; S.retry = 0; S.idx = 0;
   S.cands = candidates(st);
@@ -1366,6 +1467,14 @@ function renderThemes() {
 function renderCovers() { $('#swCovers').classList.toggle('on', covers); }
 $('#swCovers').addEventListener('click', () => { covers = !covers; save('covers', covers); renderCovers(); });
 $('#swFx').addEventListener('click', () => { fx = !fx; save('fx', fx); renderFx(); });
+$('#swSpec').addEventListener('click', () => {
+  spec = !spec; save('spec', spec);
+  if (spec) {
+    specEnsure();
+    if (specNodes && specNodes.ctx.state === 'suspended') specNodes.ctx.resume().catch(() => {});
+  }
+  renderSpec();
+});
 $('#bReset').addEventListener('click', () => {
   if (!confirm('Сбросить избранное, порядок, скрытые станции и тему на этом телефоне?')) return;
   const dropCustom = custom.length ? confirm('Удалить и свои станции (' + custom.length + ' шт.)? «Отмена» — оставить их.') : false;
@@ -1608,7 +1717,7 @@ $('#bCheck').innerHTML = IC.check;
 $('#bAdd').innerHTML = IC.plus;
 $('#bPrev').innerHTML = IC.prev; $('#bNext').innerHTML = IC.next;
 $('#sheetHead').insertAdjacentHTML('beforeend', IC.up);
-updateSleep(); renderCovers(); renderThemes(); applyTheme(); fxInit(); renderFx();
+updateSleep(); renderCovers(); renderSpec(); renderThemes(); applyTheme(); fxInit(); renderFx(); specBuildBars(); requestAnimationFrame(specLoop);
 custom = sanitizeCustom(custom);
 renderCustomRes();
 
