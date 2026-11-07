@@ -96,8 +96,19 @@
   #pTitle { margin: 22px 0 4px; text-align: center; font-size: 26px; font-weight: 600; line-height: 1.15; overflow-wrap: anywhere; }
   #pSub { margin: 0; text-align: center; color: var(--muted); font-size: 16px; min-height: 22px; }
   .prog { margin: 20px 6px 0; }
-  .prog .line { height: 1px; border-radius: 0.5px; background: var(--text); opacity: .85; }
+  .prog .line { height: 1px; border-radius: 0.5px; background: var(--text); opacity: .85; position: relative; overflow: visible; }
   .prog.paused .line { opacity: .3; }
+  /* бегущий свет по прогресс-бару — как полоска у активной станции */
+  .prog .line::after {
+    content: ""; position: absolute; top: -1px; bottom: -1px; left: 0; right: 0; border-radius: 2px;
+    background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--acc) 85%, transparent) 45%,
+                var(--text) 50%, color-mix(in srgb, var(--acc) 85%, transparent) 55%, transparent);
+    background-size: 40% 100%; background-repeat: no-repeat;
+    opacity: 0; transition: opacity .4s;
+  }
+  body.fx.playing .prog .line::after { opacity: .9; animation: progSweep 3.2s linear infinite; }
+  @keyframes progSweep { from { background-position: -45% 0; } to { background-position: 145% 0; } }
+  body.fx.playing .prog .line { box-shadow: 0 0 10px color-mix(in srgb, var(--acc) 55%, transparent); }
   .times { display: flex; justify-content: space-between; margin-top: 0; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
   .ctl { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 14px; }
   .ctl .ibtn { width: 52px; height: 52px; }
@@ -179,14 +190,12 @@
   #fx { opacity: 0; transition: opacity .8s; }
   body.fx #fx { opacity: .85; }
 
-  /* обложка «дышит» и светится, пока играет */
+  /* обложка «дышит», пока играет — свечение даёт только .art-bloom, без box-shadow */
   @keyframes breath { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.03); } }
-  @keyframes artGlow {
-    0%, 100% { box-shadow: 0 0 30px color-mix(in srgb, var(--acc) 18%, transparent); }
-    50% { box-shadow: 0 0 70px color-mix(in srgb, var(--acc) 46%, transparent); }
-  }
-  body.fx.playing #art { animation: artGlow 7s ease-in-out infinite; }
+  body.fx.playing #art { animation: none; }
   body.fx.playing #art .tile-face.front img { animation: breath 7s ease-in-out infinite; }
+  /* при повороте край плитки не должен отбрасывать тёмную полосу */
+  #art, #art .tile.flip, #art .tile-face { box-shadow: none !important; filter: none; }
 
   /* мягкий свет вокруг обложки — цвет берём из самой картинки */
   .art-bloom {
