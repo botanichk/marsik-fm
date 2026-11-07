@@ -23,6 +23,9 @@ def load_stations(path=DEFAULT_PATH):
             # запасные https-адреса для мобильной версии — не терять при сохранении
             if isinstance(entry.get("urls"), list) and entry["urls"]:
                 station["urls"] = [str(u) for u in entry["urls"] if u]
+            # обложка станции: без неё мобильная версия рисует буквы вместо логотипа
+            if entry.get("logo"):
+                station["logo"] = str(entry["logo"])
             stations.append(station)
     return stations
 

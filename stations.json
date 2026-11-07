@@ -3,35 +3,59 @@
     "id": "mixstream_radio",
     "name": "MixStream Radio",
     "description": "",
-    "logo": "../assets/mixstream-radio.png",
-    "url": "https://radio.mixstream.nl/boogie.mp3"
+    "url": "https://radio.mixstream.nl/boogie.mp3",
+    "logo": "../assets/logo/mixstream-radio.webp"
   },
   {
     "id": "181.fm_—_front_porch",
     "name": "181.FM — Front Porch",
     "description": "блюграсс",
-    "logo": "../assets/front-porch-181fm.png",
-    "url": "https://listen.181fm.com/181-frontporch_128k.mp3"
+    "url": "https://listen.181fm.com/181-frontporch_128k.mp3",
+    "logo": "../assets/logo/front-porch-181fm.webp"
   },
   {
     "id": "bluegrass_country_(wamu)",
     "name": "Bluegrass Country (WAMU)",
     "description": "",
-    "logo": "../assets/blues-country.png",
-    "url": "http://ice24.securenetsystems.net/WAMU"
+    "url": "http://ice24.securenetsystems.net/WAMU",
+    "logo": "../assets/logo/blues-country.webp"
   },
   {
     "id": "outlaw_country_radio",
     "name": "Outlaw Country Radio",
     "description": "",
-    "logo": "../assets/outlaw-country-radio.png",
-    "url": "https://usa17.fastcast4u.com/proxy/kievradio?mp=/1"
+    "url": "https://usa17.fastcast4u.com/proxy/kievradio?mp=/1",
+    "logo": "../assets/logo/outlaw-country-radio.webp"
   },
   {
     "id": "pinguin_blues",
     "name": "Pinguin Blues",
     "description": "",
-    "logo": "../assets/pinguin-blues.png",
-    "url": "https://samcloud.spacial.com/api/listen?sid=93462&m=sc"
+    "url": "https://samcloud.spacial.com/api/listen?sid=93462&m=sc",
+    "logo": "../assets/logo/pinguin-blues.webp"
+  },
+  {
+    "id": "mixstream_radio_-_disco",
+    "name": "MixStream Radio - Disco",
+    "description": "",
+    "url": "https://radio.mixstream.nl/disco.mp3"
+  },
+  {
+    "id": "mixstream_radio_-_country",
+    "name": "MixStream Radio - Country",
+    "description": "",
+    "url": "https://radio.mixstream.nl/country.mp3"
+  },
+  {
+    "id": "ace_cafe",
+    "name": "Ace Cafe",
+    "description": "",
+    "url": "https://listen.radioking.com/radio/69079/stream/106852"
+  },
+  {
+    "id": "boot_liquor",
+    "name": "Boot Liquor",
+    "description": "",
+    "url": "https://ice5.somafm.com/bootliquor-128-mp3"
   }
 ]

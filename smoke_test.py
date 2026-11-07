@@ -219,7 +219,8 @@ try:
     import tempfile
     from radio.stations import save_stations, load_stations
     sample = [{"id": "boot_liquor", "name": "Boot Liquor",
-               "description": "Americana Roots", "url": "https://x/abc.mp3"}]
+               "description": "Americana Roots", "url": "https://x/abc.mp3",
+               "logo": "../assets/logo/x.webp"}]
     with tempfile.TemporaryDirectory() as td:
         p = os.path.join(td, "stations.json")
         save_stations(sample, path=p)
