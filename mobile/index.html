@@ -90,7 +90,7 @@
   #v-player { background: radial-gradient(120% 55% at 50% 0%, color-mix(in srgb, var(--acc) 16%, var(--bg)) 0%, var(--bg) 70%); }
   #v-player { padding-bottom: calc(var(--tabs-h) + 76px + env(safe-area-inset-bottom)); }
   #pName { font-size: 19px; }
-  .art { width: min(76vw, 44vh); aspect-ratio: 1; margin: 8px auto 0; border-radius: 18px; overflow: hidden; box-shadow: 0 18px 50px #0009; display: grid; place-items: center; position: relative; }
+  .art { width: min(76vw, 44vh); aspect-ratio: 1; margin: 8px auto 0; border-radius: 18px; overflow: visible; display: grid; place-items: center; position: relative; }
   .art img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .art .tile { width: 100%; height: 100%; border-radius: 0; font-size: 22vw; }
   #pTitle { margin: 22px 0 4px; text-align: center; font-size: 26px; font-weight: 600; line-height: 1.15; overflow-wrap: anywhere; }
@@ -165,7 +165,7 @@
   .fmsg.bad { color: var(--bad); } .fmsg.good { color: var(--acc); } .fmsg.warn { color: var(--warn); }
 
   /* ---------- спецэффекты ---------- */
-  #fx, #aurora { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+  #fx, #aurora { position: fixed; inset: 0; z-index: 0; pointer-events: none; width: 100%; height: 100%; }
   #v-player > :not(#fx):not(#aurora) { position: relative; z-index: 1; }
   #aurora {
     opacity: 0; transition: opacity .8s;
@@ -182,11 +182,22 @@
   /* обложка «дышит» и светится, пока играет */
   @keyframes breath { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.03); } }
   @keyframes artGlow {
-    0%, 100% { box-shadow: 0 18px 50px #0009, 0 0 26px color-mix(in srgb, var(--acc) 16%, transparent); }
-    50% { box-shadow: 0 18px 50px #0009, 0 0 60px color-mix(in srgb, var(--acc) 42%, transparent); }
+    0%, 100% { box-shadow: 0 0 30px color-mix(in srgb, var(--acc) 18%, transparent); }
+    50% { box-shadow: 0 0 70px color-mix(in srgb, var(--acc) 46%, transparent); }
   }
   body.fx.playing #art { animation: artGlow 7s ease-in-out infinite; }
   body.fx.playing #art .tile-face.front img { animation: breath 7s ease-in-out infinite; }
+
+  /* мягкий свет вокруг обложки — цвет берём из самой картинки */
+  .art-bloom {
+    position: absolute; inset: -18%; border-radius: 50%; z-index: -1; pointer-events: none;
+    background: radial-gradient(closest-side, var(--bloom-soft, transparent) 0%, transparent 72%);
+    opacity: 0; transition: opacity .9s ease, background .9s ease;
+    filter: blur(18px);
+  }
+  body.fx .art-bloom.on { opacity: 1; animation: bloomBreath 9s ease-in-out infinite; }
+  @keyframes bloomBreath { 0%, 100% { transform: scale(.94); } 50% { transform: scale(1.06); } }
+  #art .tile.flip { position: relative; z-index: 1; }
 
   /* смена трека — короткий толчок обложки */
   @keyframes artPop { 0% { transform: scale(1); } 35% { transform: scale(1.045); } 100% { transform: scale(1); } }
@@ -381,11 +392,12 @@ function fxInit() {
     FX.el.height = Math.round(innerHeight * FX.dpr);
   };
   size(); addEventListener('resize', size);
-  for (let i = 0; i < 46; i++) {
+  for (let i = 0; i < 64; i++) {
     FX.stars.push({
-      x: Math.random(), y: Math.random(),
-      r: 0.6 + Math.random() * 1.5, v: 0.008 + Math.random() * 0.02,
-      p: Math.random() * Math.PI * 2, acc: Math.random() < 0.25,
+      a: Math.random() * Math.PI * 2, y: Math.random(),
+      d: Math.random(), r: 0.8 + Math.random() * 1.9,
+      v: 0.008 + Math.random() * 0.02,
+      p: Math.random() * Math.PI * 2, acc: Math.random() < 0.3,
     });
   }
   FX.t = performance.now();
@@ -399,15 +411,40 @@ function fxFrame(now) {
   const dt = Math.min(3, (now - FX.t) / 16.7); FX.t = now;
   const t = theme(), w = FX.el.width, h = FX.el.height, ctx = FX.ctx;
   ctx.clearRect(0, 0, w, h);
+  // звёзды живут в кольце вокруг обложки, а не по всему экрану
+  const ring = fxRing(w, h);
   for (const s of FX.stars) {
     s.y -= s.v * dt / 100;
-    if (s.y < -0.02) { s.y = 1.02; s.x = Math.random(); }
-    const a = 0.2 + 0.45 * (0.5 + 0.5 * Math.sin(now / 900 + s.p));
+    if (s.y < -0.02) { s.y = 1.02; s.a = Math.random() * Math.PI * 2; }
+    const ang = s.a + s.y * 6.283;
+    const rad = ring.r * (0.72 + s.d * 0.85);
+    const x = ring.cx + Math.cos(ang) * rad;
+    const y = ring.cy + Math.sin(ang) * rad * 0.62;
+    // за пределами экрана — не рисуем
+    if (x < -20 || x > w + 20 || y < -20 || y > h + 20) continue;
+    const a = 0.22 + 0.6 * (0.5 + 0.5 * Math.sin(now / 900 + s.p));
     ctx.beginPath();
     ctx.fillStyle = hexA(s.acc ? t.acc : t.text, a);
-    ctx.arc(s.x * w, s.y * h, s.r * FX.dpr, 0, 6.283);
+    ctx.arc(x, y, s.r * FX.dpr, 0, 6.283);
     ctx.fill();
   }
+}
+// геометрия обложки на экране (центр и радиус кольца)
+function fxRing(w, h) {
+  const art = $('#art');
+  if (art) {
+    const r = art.getBoundingClientRect();
+    const dpr = FX.dpr;
+    if (r.width > 0) {
+      return {
+        cx: (r.left + r.width / 2) * dpr,
+        cy: (r.top + r.height / 2) * dpr,
+        r: (r.width / 2) * dpr,
+      };
+    }
+  }
+  const base = Math.min(w, h) * 0.28;
+  return { cx: w / 2, cy: h * 0.34, r: base };
 }
 function pulse(el, cls) {
   if (!fx || !el) return;
@@ -416,6 +453,71 @@ function pulse(el, cls) {
 function renderFx() {
   document.body.classList.toggle('fx', fx);
   $('#swFx').classList.toggle('on', fx);
+}
+
+// ---------- свет обложки: усредняем цвет картинки (CORS у SomaFM и iTunes открыт) ----------
+const BLOOM = { cache: new Map(), seq: 0 };
+function ensureBloom() {
+  const art = $('#art');
+  if (!art) return null;
+  let el = art.querySelector('.art-bloom');
+  if (!el) { el = document.createElement('div'); el.className = 'art-bloom'; el.setAttribute('aria-hidden', 'true'); art.prepend(el); }
+  return el;
+}
+function bloomFrom(rgb, strength) {
+  const el = ensureBloom();
+  if (!el) return;
+  const s = strength == null ? 0.55 : strength;
+  el.style.setProperty('--bloom-soft', 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',' + s + ')');
+  el.classList.add('on');
+}
+function bloomFallback() {
+  const t = theme();
+  const n = parseInt(t.acc.slice(1), 16);
+  bloomFrom([n >> 16 & 255, n >> 8 & 255, n & 255], 0.38);
+}
+function averageColor(url) {
+  return new Promise((resolve) => {
+    if (!url) return resolve(null);
+    if (BLOOM.cache.has(url)) return resolve(BLOOM.cache.get(url));
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.decoding = 'async';
+    let done = false;
+    const fin = (v) => { if (done) return; done = true; clearTimeout(t); BLOOM.cache.set(url, v); resolve(v); };
+    const t = setTimeout(() => fin(null), 6000);
+    img.onload = () => {
+      try {
+        const c = document.createElement('canvas');
+        c.width = 10; c.height = 10;
+        const ctx = c.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(img, 0, 0, 10, 10);
+        const d = ctx.getImageData(0, 0, 10, 10).data;
+        let r = 0, g = 0, b = 0, n = 0, lum = 0;
+        for (let i = 0; i < d.length; i += 4) {
+          r += d[i]; g += d[i + 1]; b += d[i + 2]; n++;
+          lum += 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
+        }
+        const avg = [Math.round(r / n), Math.round(g / n), Math.round(b / n)];
+        // слишком тёмная картинка даст угольный ореол — подмешиваем цвет темы
+        if (lum / n < 46) fin('dark');
+        else fin(avg);
+      } catch (e) { fin(null); }        // защита от «испорченного» холста
+    };
+    img.onerror = () => fin(null);
+    img.src = url;
+  });
+}
+async function updateBloom() {
+  const art = $('#art');
+  if (!art) return;
+  if (!cur || !fx) { const el = ensureBloom(); if (el) el.classList.remove('on'); return; }
+  const src = (np && np.art) || logos[cur.id] || cur.logo || '';
+  const mine = ++BLOOM.seq;
+  const rgb = await averageColor(src);
+  if (mine !== BLOOM.seq) return;                    // обложка уже сменилась
+  if (rgb && rgb !== 'dark') bloomFrom(rgb, 0.55);
+  else bloomFallback();
 }
 
 const theme = () => THEMES[themeName] || THEMES[DEFAULT_THEME];
@@ -863,6 +965,7 @@ function renderPlayer() {
   document.body.classList.toggle('playing', S.intent && !AUDIO.paused);
   fixPlayerHeart();
   paintAll();
+  updateBloom();
 }
 function fixPlayerHeart() {
   const b = $('#bHeart'), on = !!(cur && favs.has(cur.id));
@@ -1496,7 +1599,7 @@ $('#bCheck').innerHTML = IC.check;
 $('#bAdd').innerHTML = IC.plus;
 $('#bPrev').innerHTML = IC.prev; $('#bNext').innerHTML = IC.next;
 $('#sheetHead').insertAdjacentHTML('beforeend', IC.up);
-updateSleep(); renderCovers(); renderThemes(); applyTheme(); renderFx();
+updateSleep(); renderCovers(); renderThemes(); applyTheme(); fxInit(); renderFx();
 custom = sanitizeCustom(custom);
 renderCustomRes();
 
