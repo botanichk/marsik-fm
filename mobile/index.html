@@ -435,6 +435,11 @@ function parseStreamUrl(raw) {
   if (u.protocol === 'http:' && isIp) return { error: 'С http-адресом из цифр (IP) браузер со защищённой страницы поток не проиграет. Нужен https или имя домена.' };
   let warn = '', playlist = false;
   if (u.protocol === 'http:') { u.protocol = 'https:'; warn = 'Заменил на https:// — сервер может не поддерживать защищённое соединение.'; }
+  // SomaFM: ссылка на плейлист или страница канала → прямой поток (плейлисты браузер не играет)
+  const soma = /^(?:www\.)?somafm\.com$/i.test(u.hostname) && (
+    /^\/([a-z0-9]+?)[0-9]*\.(?:pls|m3u|asx)$/i.exec(u.pathname) ||
+    /^\/([a-z0-9]+)(?:\/.*)?$/i.exec(u.pathname));
+  if (soma) return { url: 'https://ice2.somafm.com/' + soma[1] + '-128-mp3', warn: 'Взял прямой адрес потока вместо ссылки SomaFM.', playlist: false };
   if (/\.(pls|m3u|m3u8|asx)$/i.test(u.pathname)) { warn = (warn ? warn + ' ' : '') + 'Похоже на ссылку на плейлист, а нужна прямая ссылка на поток.'; playlist = true; }
   return { url: u.href, warn, playlist };
 }
@@ -793,8 +798,11 @@ async function loadChannels() {
     channels = {};
     for (const c of j.channels || []) {
       channels[c.id] = c;
-      const st = byId.get(c.id) || stations.find((s) => somaId(s) === c.id);
-      if (st && !st.logo) logos[st.id] = c.largeimage || c.image || c.xlimage || null;
+      const img = c.largeimage || c.image || c.xlimage || null;
+      // центр каталога бывает у нескольких станций (своя + из репозитория) — логотип всем
+      for (const st of stations) {
+        if ((st.id === c.id || somaId(st) === c.id) && !st.logo) logos[st.id] = img;
+      }
     }
     document.querySelectorAll('.tile[data-tile]').forEach((wrap) => {
     const st = byId.get(wrap.dataset.tile);
