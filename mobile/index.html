@@ -1253,6 +1253,7 @@ function renderThemes() {
 }
 function renderCovers() { $('#swCovers').classList.toggle('on', covers); }
 $('#swCovers').addEventListener('click', () => { covers = !covers; save('covers', covers); renderCovers(); });
+$('#swFx').addEventListener('click', () => { fx = !fx; save('fx', fx); renderFx(); });
 $('#bReset').addEventListener('click', () => {
   if (!confirm('Сбросить избранное, порядок, скрытые станции и тему на этом телефоне?')) return;
   const dropCustom = custom.length ? confirm('Удалить и свои станции (' + custom.length + ' шт.)? «Отмена» — оставить их.') : false;
