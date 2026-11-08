@@ -364,6 +364,8 @@ const THEMES = {
   'Kanagawa N':    { bg:'#1f1f28', bg2:'#2a2a37', bg3:'#2a2a37', text:'#c8c093', muted:'#7e9cd8', acc:'#76946a', onAcc:'#1f1f28', ramp:['#98bb6c','#7fb4ca','#938aa9','#7aa89f'] },
 };
 const DEFAULT_THEME = 'Marsik тёмная';
+const AUTO_THEME = 'Авто (по обложке)';
+let dynColor = null;   // доминирующий цвет текущей обложки [r,g,b] для динамической темы
 
 // ---------- хранилище (на этом телефоне) ----------
 const KEY = (k) => 'marsikfm:' + k;
@@ -556,19 +558,67 @@ function averageColor(url) {
 async function updateBloom() {
   const art = $('#art');
   if (!art) return;
-  if (!cur || !fx) { const el = ensureBloom(); if (el) el.classList.remove('on'); return; }
+  if (!cur) { const el = ensureBloom(); if (el) el.classList.remove('on'); return; }
+  // цвет нужен только для свечения (при включённых эффектах) или динамической темы
+  if (!fx && themeName !== AUTO_THEME) { const el = ensureBloom(); if (el) el.classList.remove('on'); return; }
   const src = (np && np.art) || logos[cur.id] || cur.logo || '';
   const mine = ++BLOOM.seq;
   const rgb = await averageColor(src);
   if (mine !== BLOOM.seq) return;                    // обложка уже сменилась
-  if (rgb && rgb !== 'dark') bloomFrom(rgb, 0.55);
-  else bloomFallback();
+  if (fx) {                                          // свечение только при включённых эффектах
+    if (rgb && rgb !== 'dark') bloomFrom(rgb, 0.55);
+    else bloomFallback();
+  } else {
+    const el = ensureBloom(); if (el) el.classList.remove('on');
+  }
+  // динамическая тема — интерфейс под цвет обложки (не трогает звук)
+  if (themeName === AUTO_THEME) {
+    dynColor = (rgb && rgb !== 'dark') ? rgb : null;
+    applyTheme();
+  }
 }
 
 const theme = () => THEMES[themeName] || THEMES[DEFAULT_THEME];
 
+function rgb2hsl(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+  let h = 0, s = 0, l = (mx + mn) / 2, d = mx - mn;
+  if (d) {
+    s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+    if (mx === r) h = (g - b) / d + (g < b ? 6 : 0);
+    else if (mx === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60;
+  }
+  return [h, s * 100, l * 100];
+}
+// палитра из одного hue: тёмный фон с оттенком (читабельный светлый текст) + яркий акцент
+function dynPalette(hue) {
+  const h = ((hue % 360) + 360) % 360;
+  return {
+    bg:    `hsl(${h} 26% 7%)`,
+    bg2:   `hsl(${h} 24% 11%)`,
+    bg3:   `hsl(${h} 22% 15%)`,
+    text:  `hsl(${h} 18% 92%)`,
+    muted: `hsl(${h} 14% 62%)`,
+    acc:   `hsl(${h} 72% 62%)`,
+    onAcc: '#0c0a08',
+    ramp:  [`hsl(${h} 80% 66%)`, `hsl(${(h + 40) % 360} 68% 60%)`, `hsl(${(h + 320) % 360} 70% 64%)`],
+  };
+}
+
 function applyTheme() {
-  const t = theme(), r = document.documentElement.style;
+  let t;
+  if (themeName === AUTO_THEME) {
+    const hue = dynColor
+      ? rgb2hsl(dynColor[0], dynColor[1], dynColor[2])[0]
+      : hueOf((cur && cur.id) || 'marsik');
+    t = dynPalette(hue);
+  } else {
+    t = theme();
+  }
+  const r = document.documentElement.style;
   r.setProperty('--bg', t.bg); r.setProperty('--bg2', t.bg2); r.setProperty('--bg3', t.bg3);
   r.setProperty('--text', t.text); r.setProperty('--muted', t.muted);
   r.setProperty('--acc', t.acc); r.setProperty('--on-acc', t.onAcc);
@@ -1131,7 +1181,7 @@ async function setTrack(p) {
   fxBurst();                                     // искорки кольцом из обложки
   renderPlayer(); renderHistory(); updateSession();
   const art = await findCover(p);
-  if (art && np && np.title === p.title) { np.art = art; refreshPlayerTile(); updateSession(); }
+  if (art && np && np.title === p.title) { np.art = art; refreshPlayerTile(); updateSession(); updateBloom(); }
 }
 function clearTrack() { np = null; refreshPlayerTile(); }
 
@@ -1400,13 +1450,20 @@ function closeOverlay() { probeId++; stopProbe(); $('#overlay').classList.remove
 // ---------- настройки ----------
 function renderThemes() {
   const box = $('#themes'); box.textContent = '';
-  for (const [name, t] of Object.entries(THEMES)) {
+  const names = [AUTO_THEME].concat(Object.keys(THEMES));
+  for (const name of names) {
+    const t = THEMES[name];
     const b = document.createElement('button'); b.className = 'theme' + (name === themeName ? ' on' : '');
     const sw = document.createElement('span'); sw.className = 'sw';
-    for (const c of [t.bg2, t.acc, t.ramp[1]]) { const i = document.createElement('i'); i.style.background = c; sw.append(i); }
+    if (t) {
+      for (const c of [t.bg2, t.acc, t.ramp[1]]) { const i = document.createElement('i'); i.style.background = c; sw.append(i); }
+    } else {
+      // Авто — радужный мазок: намёк, что тема подстраивается под обложку
+      for (const c of ['hsl(8 70% 55%)', 'hsl(140 60% 50%)', 'hsl(220 70% 60%)']) { const i = document.createElement('i'); i.style.background = c; sw.append(i); }
+    }
     const l = document.createElement('span'); l.textContent = name;
     b.append(sw, l);
-    b.onclick = () => { themeName = name; save('theme', name); applyTheme(); renderThemes(); };
+    b.onclick = () => { themeName = name; save('theme', name); applyTheme(); renderThemes(); if (name === AUTO_THEME) updateBloom(); };
     box.append(b);
   }
 }
