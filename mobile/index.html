@@ -187,8 +187,9 @@
       radial-gradient(38% 30% at 86% 28%, color-mix(in srgb, var(--text) 30%, transparent), transparent 70%),
       radial-gradient(55% 42% at 62% 92%, color-mix(in srgb, var(--acc) 38%, transparent), transparent 72%);
   }
-  body.fx #aurora { opacity: .85; animation: aurora 22s ease-in-out infinite alternate; }
+  body.fx #aurora { opacity: .85; animation: aurora 22s ease-in-out infinite alternate, auroraBreath 5.5s ease-in-out infinite alternate; }
   @keyframes aurora { from { transform: translate3d(-4%, -2%, 0) scale(1.08); } to { transform: translate3d(4%, 3%, 0) scale(1.2); } }
+  @keyframes auroraBreath { from { opacity: .45; } 50% { opacity: .95; } to { opacity: .45; } }
   #fx { opacity: 0; transition: opacity .8s; }
   body.fx #fx { opacity: .85; }
 
