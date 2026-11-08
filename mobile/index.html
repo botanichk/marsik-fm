@@ -181,12 +181,14 @@
   #aurora {
     opacity: 0; transition: opacity .8s;
     background:
-      radial-gradient(42% 34% at 18% 12%, color-mix(in srgb, var(--acc) 40%, transparent), transparent 70%),
-      radial-gradient(38% 30% at 86% 28%, color-mix(in srgb, var(--text) 20%, transparent), transparent 70%),
-      radial-gradient(55% 42% at 62% 92%, color-mix(in srgb, var(--acc) 26%, transparent), transparent 72%);
+      radial-gradient(30% 14% at 30% 0%, color-mix(in srgb, var(--acc) 60%, transparent), transparent 75%),
+      radial-gradient(26% 12% at 72% 0%, color-mix(in srgb, var(--text) 34%, transparent), transparent 75%),
+      radial-gradient(42% 34% at 18% 12%, color-mix(in srgb, var(--acc) 55%, transparent), transparent 70%),
+      radial-gradient(38% 30% at 86% 28%, color-mix(in srgb, var(--text) 30%, transparent), transparent 70%),
+      radial-gradient(55% 42% at 62% 92%, color-mix(in srgb, var(--acc) 38%, transparent), transparent 72%);
   }
-  body.fx #aurora { opacity: .55; animation: aurora 28s ease-in-out infinite alternate; }
-  @keyframes aurora { from { transform: translate3d(-3%, -2%, 0) scale(1.08); } to { transform: translate3d(3%, 2%, 0) scale(1.18); } }
+  body.fx #aurora { opacity: .85; animation: aurora 22s ease-in-out infinite alternate; }
+  @keyframes aurora { from { transform: translate3d(-4%, -2%, 0) scale(1.08); } to { transform: translate3d(4%, 3%, 0) scale(1.2); } }
   #fx { opacity: 0; transition: opacity .8s; }
   body.fx #fx { opacity: .85; }
 
