@@ -311,7 +311,7 @@
   <button data-go="settings" aria-label="Настройки"></button>
 </nav>
 <div id="overlay"><div class="box" id="overlayBox"></div></div>
-<audio id="audio" preload="none" crossorigin="anonymous"></audio>
+<audio id="audio" preload="none"></audio>
 
 <script>
 'use strict';
@@ -385,43 +385,6 @@ const dead = new Map();               // id → 'down' | 'nohttps' (только
 const UP = new Set();                 // адреса, поднятые нами с http до https
 const logos = {};                     // id → адрес логотипа (из каталога SomaFM)
 
-// ---------- ритм из звука: анализатор только для звёзд (Web Audio, CORS открыт у SomaFM и всех наших станций) ----------
-const BEAT = { nodes: null, failed: false, peak: 80, level: 0 };
-function beatEnsure() {
-  if (BEAT.nodes || BEAT.failed) return BEAT.nodes;
-  try {
-    const AC = window.AudioContext || window.webkitAudioContext;
-    if (!AC) throw new Error('no AudioContext');
-    const ctx = new AC();
-    const analyser = ctx.createAnalyser();
-    analyser.fftSize = 128;               // 64 бина, хватает для оценки низов
-    analyser.smoothingTimeConstant = 0.72;
-    const src = ctx.createMediaElementSource(AUDIO);
-    src.connect(analyser);
-    analyser.connect(ctx.destination);    // без этого звук пропадёт
-    BEAT.nodes = { ctx, analyser, data: new Uint8Array(analyser.frequencyBinCount) };
-    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
-    return BEAT.nodes;
-  } catch (e) {
-    BEAT.failed = true;                   // анализатор не завёлся — звёзды останутся «спокойными»
-    return null;
-  }
-}
-// отдаём 0..1: сколько сейчас «низа» в музыке (нормализовано скользящим пиком)
-function beatLevel() {
-  if (!BEAT.nodes) return 0;
-  if (!S.intent || AUDIO.paused) { BEAT.level *= 0.9; return BEAT.level; }
-  const { analyser, data } = BEAT.nodes;
-  analyser.getByteFrequencyData(data);
-  let sum = 0;
-  for (let j = 1; j < 10 && j < data.length; j++) sum += data[j];
-  const cur = sum / (9 * 255);
-  if (!BEAT.peak) BEAT.peak = 0.05;
-  BEAT.peak = Math.max(cur, BEAT.peak * 0.97, 0.08);   // пик затухает медленно, в тех же единицах 0..1
-  BEAT.level = BEAT.peak > 0 ? Math.min(1, Math.pow(cur / BEAT.peak, 1.35)) : 0;
-  return BEAT.level;
-}
-
 // ---------- спецэффекты: звёзды за обложкой (canvas, 30 кадров/с) ----------
 const FX = { el: null, ctx: null, stars: [], t: 0, dpr: 1 };
 function hexA(hex, a) {
@@ -438,11 +401,11 @@ function fxInit() {
     FX.el.height = Math.round(innerHeight * FX.dpr);
   };
   size(); addEventListener('resize', size);
-  for (let i = 0; i < 80; i++) {
+  for (let i = 0; i < 130; i++) {
     FX.stars.push({
       a: Math.random() * Math.PI * 2, y: Math.random(),
-      d: Math.random(), r: 0.7 + Math.random() * 2.0,
-      v: 0.008 + Math.random() * 0.02,
+      d: Math.random(), r: 0.8 + Math.random() * 2.4,
+      v: 0.008 + Math.random() * 0.022,
       p: Math.random() * Math.PI * 2, acc: Math.random() < 0.3,
     });
   }
@@ -456,23 +419,21 @@ function fxFrame(now) {
   if (now - FX.t < 33) return;
   const dt = Math.min(3, (now - FX.t) / 16.7); FX.t = now;
   const t = theme(), w = FX.el.width, h = FX.el.height, ctx = FX.ctx;
-  const pulse = beatLevel();                       // 0..1, «сколько низа в музыке»
   ctx.clearRect(0, 0, w, h);
   // звёзды живут в кольце вокруг обложки, а не по всему экрану
   const ring = fxRing(w, h);
   for (const s of FX.stars) {
-    s.y -= (s.v * (1 + pulse * 2.2)) * dt / 100;   // под крик баса звёзды быстрее уходят вверх
+    s.y -= s.v * dt / 100;                     // медленный дрейф
     if (s.y < -0.02) { s.y = 1.02; s.a = Math.random() * Math.PI * 2; }
     const ang = s.a + s.y * 6.283;
     const rad = ring.r * (0.72 + s.d * 0.85);
     const x = ring.cx + Math.cos(ang) * rad;
     const y = ring.cy + Math.sin(ang) * rad * 0.62;
     if (x < -20 || x > w + 20 || y < -20 || y > h + 20) continue;
-    const base = 0.22 + 0.6 * (0.5 + 0.5 * Math.sin(now / 900 + s.p));
-    const a = Math.min(1, base * (0.65 + pulse * 0.9));
+    const a = 0.28 + 0.72 * (0.5 + 0.5 * Math.sin(now / 800 + s.p));
     ctx.beginPath();
     ctx.fillStyle = hexA(s.acc ? t.acc : t.text, a);
-    ctx.arc(x, y, s.r * FX.dpr * (0.75 + pulse * 0.85), 0, 6.283);
+    ctx.arc(x, y, s.r * FX.dpr, 0, 6.283);
     ctx.fill();
   }
 }
@@ -1241,7 +1202,6 @@ function clearTimers() { clearTimeout(S.timer); clearTimeout(S.stall); }
 
 function startStation(st) {
   S.token++; clearTimers(); clearMixTimer(); clearIcyTimer();
-  beatEnsure();                           // анализатор звука — для звёзд, создаём по жесту пользователя
   if (cur && cur.id !== st.id) clearTrack();
   cur = st; S.intent = true; S.retry = 0; S.idx = 0;
   S.cands = candidates(st);
