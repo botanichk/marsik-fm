@@ -372,7 +372,10 @@ function save(k, v) { try { localStorage.setItem(KEY(k), JSON.stringify(v)); ret
 
 let stations = [], byId = new Map();
 let custom = load('custom', []);      // свои станции (marsikfm:custom)
-let repoStations = [];                // станции из stations.json
+let repoSource = [];                  // станции из stations.json, как есть
+let repoStations = [];                // станции из репозитория с правками телефона поверх
+const loadRepoEdit = () => load('repoedit', {});   // {id: {name?, url?, description?, logo?}}
+const saveRepoEdit = (v) => save('repoedit', v);
 let favs = new Set(load('fav', []));
 let order = load('order', []);
 let good = load('good', {});
@@ -592,10 +595,10 @@ function paintTile(frontEl, st) {
   frontEl.style.color = 'var(--text)';
   frontEl.style.fontSize = '18px';
   frontEl.style.fontWeight = '700';
-  if (url) {
+  if (url && !st._logoBad) {
     const img = document.createElement('img');
     img.alt = ''; img.src = url; img.loading = 'lazy';
-    img.onerror = () => { logos[st.id] = null; st.logo = null; paintTile(frontEl, st); };
+    img.onerror = () => { logos[st.id] = null; st._logoBad = true; paintTile(frontEl, st); };   // буквы вместо битых ссылок, но саму ссылку не стираем
     frontEl.append(img);
   } else {
     const h = hueOf(st.custom ? st.name + ' ' + (st.description || '') : st.id);
@@ -718,7 +721,9 @@ function sanitizeCustom(list) {
 }
 
 function mountStations(list) {
-  if (list) repoStations = list.filter((s) => s && s.id && s.name && (s.url || s.urls));
+  if (list) repoSource = list.filter((s) => s && s.id && s.name && (s.url || s.urls));
+  const re = loadRepoEdit();                                  // правки с телефона кладутся поверх репозитория
+  repoStations = repoSource.map((st) => Object.assign({}, st, re[st.id] || {}));
   stations = repoStations.concat(custom);
   byId = new Map(stations.map((s) => [s.id, s]));
 }
@@ -778,17 +783,25 @@ function makeRow(st) {
   else { act.className = 'ibtn'; act.innerHTML = fillHeart(favs.has(st.id)); act.setAttribute('aria-label', 'Избранное'); act.dataset.act = 'fav'; }
   li.append(makeTile(st), txt, act);
   if (editing) {
-    if (st.custom) {
-      const ed = document.createElement('button');
-      ed.className = 'ibtn'; ed.innerHTML = IC.edit;
-      ed.setAttribute('aria-label', 'Изменить станцию'); ed.dataset.act = 'edit';
-      li.append(ed);
+    const ed = document.createElement('button');
+    ed.className = 'ibtn'; ed.innerHTML = IC.edit;
+    ed.setAttribute('aria-label', st.custom ? 'Изменить станцию' : 'Изменить станцию (правка на этом телефоне)');
+    ed.dataset.act = 'edit';
+    li.append(ed);
+    if (!st.custom && repoEditBadge(st.id)) {                    // метка «моя правка» на перезаписанной станции
+      const mark = document.createElement('small');
+      mark.className = 'badge'; mark.textContent = 'мой вариант';
+      txt.append(mark);
     }
     const grip = document.createElement('span'); grip.className = 'grip'; grip.innerHTML = IC.grip; grip.dataset.act = 'grip';
     li.append(grip);
   }
   paintRow(li);
   return li;
+}
+function repoEditBadge(id) {
+  const ed = loadRepoEdit();
+  return !!(ed && ed[id] && Object.keys(ed[id]).length);
 }
 function paintRow(li) {
   const st = byId.get(li.dataset.id);
@@ -1402,17 +1415,17 @@ $('#swCovers').addEventListener('click', () => { covers = !covers; save('covers'
 $('#swFx').addEventListener('click', () => { fx = !fx; save('fx', fx); renderFx(); });
 $('#bReset').addEventListener('click', () => {
   if (!confirm('Сбросить избранное, порядок, скрытые станции и тему на этом телефоне?')) return;
-  const dropCustom = custom.length ? confirm('Удалить и свои станции (' + custom.length + ' шт.)? «Отмена» — оставить их.') : false;
+  const dropCustom = custom.length ? confirm('Удалить и свои станции (' + custom.length + ' шт.) вместе с их правками? «Отмена» — оставить их.') : false;
   try {
     Object.keys(localStorage)
-      .filter((k) => k.startsWith('marsikfm:') && (dropCustom || k !== KEY('custom')))
+      .filter((k) => k.startsWith('marsikfm:') && (dropCustom || (k !== KEY('custom') && k !== KEY('repoedit'))))
       .forEach((k) => localStorage.removeItem(k));
   } catch (e) {}
   location.reload();
 });
 
 // ---------- свои станции: форма, проверка потока, копия и вставка ----------
-let formEditId = null, probeAudio = null, probeId = 0;
+let formEditId = null, formRepoId = null, probeAudio = null, probeId = 0;
 
 function stopProbe() {
   if (!probeAudio) return;
@@ -1455,11 +1468,18 @@ function renderCustomRes() {
 }
 
 function openStationForm(st) {
-  formEditId = st ? st.id : null;
+  formEditId = null; formRepoId = null;
+  if (st) { if (st.custom) formEditId = st.id; else formRepoId = st.id; }
+  const repoSt = formRepoId ? byId.get(formRepoId) : null;      // не-моя станция из репозитория
   probeId++; stopProbe();
   const box = $('#overlayBox'); box.textContent = '';
   const h = document.createElement('h3'); h.textContent = st ? 'Изменить станцию' : 'Своя станция';
   box.append(h);
+  if (repoSt) {                                   // станция из репозитория — правка только на этом телефоне
+    const note = document.createElement('div'); note.className = 'fmsg good';
+    note.textContent = 'Станция из общих настроек. Правка хранится только на этом телефоне — на компьютере и у других устройств не поменяется.';
+    box.append(note);
+  }
   const mk = (text, value, ph, max, type) => {
     const l = document.createElement('label'); l.className = 'field';
     const s = document.createElement('span'); s.textContent = text;
@@ -1473,6 +1493,24 @@ function openStationForm(st) {
   const iUrl = mk('Адрес потока', st && st.url, 'https://example.com/stream.mp3', LIM.url, 'url');
   const iDesc = mk('Описание', st && st.description, 'Необязательно', LIM.desc);
   const iLogo = mk('Адрес картинки', st && st.logo, 'Необязательно, https://…/logo.png', LIM.url, 'url');
+  const logoPreview = document.createElement('img');
+  logoPreview.alt = ''; logoPreview.style.cssText = 'width:64px;height:64px;object-fit:contain;border-radius:8px;display:none;margin:4px 0;background:var(--bg3)';
+  const logoStatus = document.createElement('div');
+  logoStatus.className = 'fmsg';
+  logoStatus.style.margin = '0';
+  box.append(logoPreview, logoStatus);
+  const updLogoPreview = () => {
+    const v = iLogo.value.trim();
+    if (!v) { logoPreview.style.display = 'none'; logoStatus.textContent = ''; return; }
+    if (!/^https:\/\//i.test(v)) { logoPreview.style.display = 'none'; logoStatus.textContent = 'Картинка должна быть по https://'; logoStatus.className = 'fmsg bad'; return; }
+    logoStatus.textContent = 'Загружаю картинку…'; logoStatus.className = 'fmsg';
+    logoPreview.onload = () => { logoPreview.style.display = 'block'; logoStatus.textContent = 'Картинка загрузилась. Сохранится вместе с правкой.'; logoStatus.className = 'fmsg good'; };
+    logoPreview.onerror = () => { logoPreview.style.display = 'none'; logoStatus.textContent = 'Не загрузилось — проверь ссылку (на «сохранить» всё равно нажми: картинка будет проигнорирована).'; logoStatus.className = 'fmsg bad'; };
+    logoPreview.src = v;
+  };
+  iLogo.addEventListener('input', updLogoPreview);
+  iLogo.addEventListener('change', updLogoPreview);
+  updLogoPreview();
   const msg = document.createElement('div'); msg.className = 'fmsg'; box.append(msg);
   let offerBtn = null, warned = false;
   const say = (text, cls) => {
@@ -1499,6 +1537,19 @@ function openStationForm(st) {
   const bTry = document.createElement('button'); bTry.className = 'btn'; bTry.textContent = 'Проверить';
   const bSave = document.createElement('button'); bSave.className = 'btn acc'; bSave.textContent = 'Сохранить';
   row.append(bTry, bSave); box.append(row);
+  // для станции из репозитория: можно вернуть «как было в настройках»
+  if (formRepoId && loadRepoEdit()[formRepoId]) {
+    const bResetRepo = document.createElement('button');
+    bResetRepo.className = 'btn wide'; bResetRepo.textContent = 'Вернуть как в репозитории';
+    bResetRepo.onclick = () => {
+      const re = loadRepoEdit();
+      delete re[formRepoId];
+      saveRepoEdit(re);
+      closeOverlay();
+      mountStations(); renderLists(); renderPlayer();
+    };
+    box.append(bResetRepo);
+  }
   const bCancel = document.createElement('button'); bCancel.className = 'btn wide'; bCancel.textContent = 'Отмена'; box.append(bCancel);
   bCancel.onclick = closeOverlay;
 
@@ -1527,15 +1578,29 @@ function openStationForm(st) {
       say(v.warn + ' Нажми «Сохранить» ещё раз, если всё равно сохранить.', 'warn');
       return;
     }
+    const selfId = formEditId || formRepoId;
     const dup = streamUrlMap().get(v.url);
-    if (dup && dup.id !== formEditId) {
+    if (dup && dup.id !== selfId) {
       say('Такая станция уже есть: «' + dup.name + '». Дубль не нужен.', 'bad');
       offerOpen(dup);
       return;
     }
     const data = { name, url: v.url, description: desc, logo };
     let target;
-    if (formEditId) {
+    if (formRepoId) {
+      // правка станции из репозитория: храним только изменённые поля на этом телефоне
+      const src = repoSource.find((s) => s.id === formRepoId);
+      if (!src) { say('Станция не найдена — обнови страницу.', 'bad'); return; }
+      const clean = {};
+      if (data.name !== src.name) clean.name = data.name;
+      if (data.url !== src.url) clean.url = data.url;
+      if ((data.description || '') !== (src.description || '')) clean.description = data.description || '';
+      if ((data.logo || '') !== (src.logo || '')) clean.logo = data.logo || '';
+      const re = loadRepoEdit();
+      if (Object.keys(clean).length) re[formRepoId] = clean; else delete re[formRepoId];
+      if (!saveRepoEdit(re)) { say('Браузер не даёт сохранить (приватный режим?).', 'bad'); return; }
+      target = { id: formRepoId };          // полный объект подставится в mountStations
+    } else if (formEditId) {
       const i = custom.findIndex((s) => s.id === formEditId);
       if (i < 0) { say('Станция не найдена — закрой форму и попробуй снова.', 'bad'); return; }
       target = custom[i] = Object.assign({}, custom[i], data);
@@ -1544,10 +1609,15 @@ function openStationForm(st) {
       target = Object.assign({ id: newCustomId(), custom: true }, data);
       custom.push(target);
     }
-    if (!save('custom', custom)) {
-      if (!formEditId) custom.pop();
-      say('Браузер не даёт сохранить (приватный режим?). Станция не сохранится.', 'bad');
-      return;
+    if (formRepoId) {
+      mountStations();                     // подтянуть наш вариант обратно
+      target = byId.get(formRepoId) || target;
+    } else {
+      if (!save('custom', custom)) {
+        if (!formEditId) custom.pop();
+        say('Браузер не даёт сохранить (приватный режим?). Станция не сохранится.', 'bad');
+        return;
+      }
     }
     const wasUrl = cur && cur.id === target.id ? cur.url : '';
     closeOverlay();
