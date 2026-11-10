@@ -552,7 +552,10 @@ function averageColor(url) {
       } catch (e) { fin(null); }        // защита от «испорченного» холста
     };
     img.onerror = () => fin(null);
-    img.src = url;
+    // cache-buster: грузим копию URL, чтобы CORS-запрос НЕ травил кэш самой
+    // отображаемой картинки (иначе в «Авто» обложка перестаёт грузиться и
+    // onerror заменяет её на логотип станции).
+    img.src = url + (url.includes('?') ? '&' : '?') + '_cb=' + Date.now();
   });
 }
 async function updateBloom() {
@@ -627,7 +630,11 @@ function applyTheme() {
   document.querySelectorAll('.tile[data-tile]').forEach((wrap) => {
     const st = byId.get(wrap.dataset.tile);
     const front = wrap.querySelector('.front');
-    if (front && st) paintTile(front, st);
+    if (front && st) {
+      // не затираем обложку трека в плитке проигрывателя (тема «Авто» дёргает applyTheme на каждый трек)
+      if (wrap.closest('#art') && np && np.art) return;
+      paintTile(front, st);
+    }
   });
 }
 
@@ -1124,7 +1131,10 @@ async function loadChannels() {
     document.querySelectorAll('.tile[data-tile]').forEach((wrap) => {
     const st = byId.get(wrap.dataset.tile);
     const front = wrap.querySelector('.front');
-    if (front && st) paintTile(front, st);
+    if (front && st) {
+      if (wrap.closest('#art') && np && np.art) return; // не затираем обложку трека
+      paintTile(front, st);
+    }
   });
     return true;
   } catch (e) { return false; }
