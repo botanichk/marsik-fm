@@ -663,10 +663,26 @@ function paintTile(frontEl, st) {
     frontEl.textContent = initials(st.name);
   }
 }
-function paintBack(backEl) {
+function paintBackIcon(backEl) {
   backEl.textContent = '';
   const img = document.createElement('img');
   img.alt = 'Marsik FM'; img.src = '../assets/icon.png'; img.loading = 'lazy';
+  backEl.append(img);
+}
+function paintBack(backEl, st) {
+  // Оборот: обложка СТАНЦИИ (своя из stations.json или логотип из каталога
+  // SomaFM). Котик — только запасной вариант: нет обложки станции или лицо
+  // этой же карточки уже занято логотипом станции (иначе стороны совпадут).
+  backEl.textContent = '';
+  if (!st) { paintBackIcon(backEl); return; }
+  const url = st.logo || logos[st.id];
+  const isCurrent = cur && cur.id === st.id;
+  const frontHasTrack = !!(isCurrent && np && np.art);
+  if (!url || st._logoBad || !frontHasTrack) { paintBackIcon(backEl); return; }
+  const img = document.createElement('img');
+  img.alt = st.name || 'Marsik FM';
+  img.src = url; img.loading = 'lazy';
+  img.onerror = () => { st._logoBad = true; logos[st.id] = null; paintBackIcon(backEl); };
   backEl.append(img);
 }
 function makeTile(st) {
@@ -678,7 +694,7 @@ function makeTile(st) {
   inner.append(front, back);
   wrap.append(inner);
   paintTile(front, st);
-  paintBack(back);
+  paintBack(back, st);
   const toggleFlip = (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -1042,13 +1058,14 @@ function artTile(st) {
       if (np && np.title === capturedTitle && np.artist === capturedArtist && np.art === capturedArt) {
         np.art = null;
         paintTile(front, st);
+        paintBack(back, st);   // лицо снова логотип станции → оборот = котик
       }
     };
     front.append(img);
   } else {
     paintTile(front, st);
   }
-  paintBack(back);
+  paintBack(back, st);
   // тап в любом месте карточки в плеере переворачивает
   const toggleFlip = (e) => {
     e.preventDefault();
@@ -1102,6 +1119,7 @@ function refreshPlayerTile() {
       if (np && np.title === capturedTitle && np.artist === capturedArtist && np.art === capturedArt) {
         np.art = null;
         paintTile(front, cur);
+        paintBack(wrap.querySelector('.back'), cur);
       }
     };
     front.append(img);
@@ -1109,7 +1127,7 @@ function refreshPlayerTile() {
     paintTile(front, cur);
   }
   const back = wrap.querySelector('.back');
-  if (back) paintBack(back);
+  if (back) paintBack(back, cur);
 }
 function setState(t) { $('#state').textContent = t; if (!np || !np.title) $('#miniSub').textContent = t; }
 
@@ -1131,9 +1149,15 @@ async function loadChannels() {
     document.querySelectorAll('.tile[data-tile]').forEach((wrap) => {
     const st = byId.get(wrap.dataset.tile);
     const front = wrap.querySelector('.front');
+    const back = wrap.querySelector('.back');
     if (front && st) {
-      if (wrap.closest('#art') && np && np.art) return; // не затираем обложку трека
+      if (wrap.closest('#art') && np && np.art) {
+        // лицо занято обложкой трека — обновляем только оборот (логотип станции)
+        if (back) paintBack(back, st);
+        return;
+      }
       paintTile(front, st);
+      if (back) paintBack(back, st);
     }
   });
     return true;
