@@ -236,8 +236,12 @@ class IslandMenu(QWidget):
         p.setBrush(Qt.NoBrush)
         p.drawPath(self._shape(w, h, closed=False))
 
-        # содержимое: проявляется ближе к концу раскрытия
-        p.setClipPath(self._shape(w, h))
+        # содержимое: проявляется ближе к концу раскрытия.
+        # ВАЖНО: клипируем ПРЯМОУГОЛЬНИКОМ, а не setClipPath(путь) — под
+        # Wayland/EGL setClipPath с QPainterPath даёт segfault (падает GUI при
+        # открытии любого меню-«острова»). Содержимое и так вписано в тело
+        # между вогнутыми скруглениями, поэтому прямоугольная обрезка безопасна.
+        p.setClipRect(QRectF(float(_FLARE), 0.0, float(w - 2 * _FLARE), float(h)))
         p.setOpacity(max(0.0, min(1.0, (self._p - 0.3) / 0.7)))
         fm = QFontMetrics(self.font())
         bx0, bx1 = _FLARE + _PAD_X, w - _FLARE - _PAD_X

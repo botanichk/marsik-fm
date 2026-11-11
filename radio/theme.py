@@ -71,6 +71,68 @@ def rgba(c, a):
     return "rgba(%d, %d, %d, %d)" % (c[0], c[1], c[2], a)
 
 
+# ---------- HSL-утилиты (для динамической темы «Авто») ----------
+
+def rgb_to_hsl(r, g, b):
+    """RGB (0..255) → (h 0..360, s 0..1, l 0..1)."""
+    r, g, b = r / 255.0, g / 255.0, b / 255.0
+    mx, mn = max(r, g, b), min(r, g, b)
+    l = (mx + mn) / 2.0
+    if mx == mn:
+        h = s = 0.0
+    else:
+        d = mx - mn
+        s = d / (2 - mx - mn) if l > 0.5 else d / (mx + mn)
+        if mx == r:
+            h = (g - b) / d + (6.0 if g < b else 0.0)
+        elif mx == g:
+            h = (b - r) / d + 2.0
+        else:
+            h = (r - g) / d + 4.0
+        h *= 60.0
+    return h % 360.0, s, l
+
+
+def _hue2rgb(p, q, t):
+    if t < 0.0:
+        t += 1.0
+    if t > 1.0:
+        t -= 1.0
+    if t < 1 / 6.0:
+        return p + (q - p) * 6.0 * t
+    if t < 1 / 2.0:
+        return q
+    if t < 2 / 3.0:
+        return p + (q - p) * (2 / 3.0 - t) * 6.0
+    return p
+
+
+def hsl_to_rgb(h, s, l):
+    """H (0..360), S/L (0..1) → (r, g, b) по 255."""
+    h = (h % 360.0) / 360.0
+    if s == 0.0:
+        r = g = b = l
+    else:
+        q = l + s * l if l < 0.5 else l + s - s * l
+        p = 2.0 * l - q
+        r = _hue2rgb(p, q, h + 1 / 3.0)
+        g = _hue2rgb(p, q, h)
+        b = _hue2rgb(p, q, h - 1 / 3.0)
+    return tuple(int(round(c * 255)) for c in (r, g, b))
+
+
+def hsl_hex(h, s, l):
+    return hexs(hsl_to_rgb(h, s, l))
+
+
+def hue_of(seed):
+    """Детерминированный hue 0..359 из строки (запасной оттенок)."""
+    h = 0
+    for ch in (seed or ""):
+        h = (h * 31 + ord(ch)) & 0xFFFF
+    return h % 360
+
+
 # ---------- тема ----------
 
 class Theme:
@@ -212,11 +274,14 @@ def _load_user_themes(base):
 
 class ThemeManager(QObject):
     changed = Signal()
+    AUTO = "Авто"
 
     def __init__(self):
         super().__init__()
         self.themes = {}
         self.current = None
+        self._auto = False
+        self._fallback_seed = "marsik"
         self.reload()
         self.current = self.themes[DEFAULT_THEME]
 
@@ -226,18 +291,62 @@ class ThemeManager(QObject):
         themes = dict(builtin)
         themes.update(_load_user_themes(builtin[DEFAULT_THEME]))
         self.themes = themes
-        if self.current is not None:
+        # авто-тему не затираем: она строится на лету и не лежит в themes
+        if self.current is not None and not self._auto:
             self.current = themes.get(self.current.name, themes[DEFAULT_THEME])
 
     def names(self):
-        return list(self.themes)
+        return [self.AUTO] + sorted(t for t in self.themes if t != self.AUTO)
+
+    def is_auto(self):
+        return self._auto
 
     def set(self, name):
+        if name == self.AUTO:
+            self._auto = True
+            self.current = self._build_auto()
+            self.changed.emit()
+            return
         th = self.themes.get(name)
         if th is None or th is self.current:
             return
+        self._auto = False
         self.current = th
         self.changed.emit()
+
+    def set_auto(self, rgb=None, seed=None):
+        """Перестраивает авто-тему по цвету обложки (rgb) либо по сиду."""
+        self._auto = True
+        self.current = self._build_auto(rgb, seed)
+        self.changed.emit()
+
+    def set_auto_fallback(self, seed):
+        """Обновляет запасной оттенок авто-темы (по станции), если активна."""
+        if not self._auto:
+            return
+        self.current = self._build_auto(None, seed)
+        self.changed.emit()
+
+    def _build_auto(self, rgb=None, seed=None):
+        if rgb:
+            h = rgb_to_hsl(*rgb)[0]
+        else:
+            h = hue_of(seed or self._fallback_seed)
+        return Theme(
+            self.AUTO,
+            hsl_hex(h, 0.72, 0.62),        # primary / акцент
+            hsl_hex(h, 0.40, 0.55),        # secondary / заголовки
+            hsl_hex((h + 320) % 360, 0.70, 0.64),  # tertiary
+            hsl_hex(h, 0.24, 0.11),        # surface
+            hsl_hex(h, 0.18, 0.92),        # on_surface / текст
+            hsl_hex(h, 0.26, 0.07),        # canvas / фон окна
+            [hsl_hex(h, 0.80, 0.66),
+             hsl_hex((h + 40) % 360, 0.68, 0.60),
+             hsl_hex((h + 320) % 360, 0.70, 0.64),
+             hsl_hex((h + 20) % 360, 0.60, 0.58)],  # ramp (4 цвета)
+            hsl_hex(h, 0.30, 0.05),        # viz_bg
+            dark=True,
+        )
 
 
 manager = ThemeManager()

@@ -13,22 +13,26 @@ QProcess — интерфейс не замирает.
 прежней — маскот-кот убран из интерфейса (вернёмся к коту-бонго позже).
 """
 import os
+import math
 import random
 import re
 import shutil
+import time
 from string import Template
 
 from PySide6.QtCore import (
-    QAbstractAnimation, QEvent, QPropertyAnimation, QProcess, QSettings,
-    QStandardPaths, Qt, QTime, QTimer,
+    QEasingCurve, QEvent, QPropertyAnimation, QProcess,
+    Property, QRect, QRectF, QSettings, QStandardPaths, Qt, QTime, QTimer,
 )
 from PySide6.QtCore import QUrl, Signal
+from pathlib import Path
 from PySide6.QtGui import (
-    QColor, QDesktopServices, QFont, QIcon, QPainter, QPixmap,
+    QColor, QDesktopServices, QFont, QFontMetrics, QIcon, QLinearGradient, QPainter,
+    QPainterPath, QPen, QPixmap, QRadialGradient, QRegion,
 )
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QFrame,
-    QGraphicsOpacityEffect, QHBoxLayout, QLabel, QLineEdit, QMenu,
+    QHBoxLayout, QLabel, QLineEdit,
     QMainWindow, QMessageBox, QProgressBar, QSlider, QStackedWidget,
     QSizePolicy, QStyle, QToolButton, QVBoxLayout, QWidget,
 )
@@ -37,8 +41,9 @@ from .island import IslandMenu
 from .playlist import DurationProbe, PlayQueue, fmt_time
 from .theme import THEMES_DIR, hexs, manager as themes
 from .engine import AudioEngine, CONNECTING, ERROR, PAUSED, PLAYING, STOPPED
-from .stations import DEFAULT_PATH, load_stations, save_stations
+from .stations import DEFAULT_PATH, PROJECT_DIR, load_stations, save_stations
 from .tap import AudioTap
+from .cover import CoverFetcher
 from .viz.glowing_wave import GlowingWave
 from .viz.spectrum import Spectrum
 from .viz.warp import Warp
@@ -75,8 +80,135 @@ def _bg_label(name):
     return os.path.splitext(name)[0].replace("_", " ").replace("-", " ")
 
 
+def _resolve_logo(logo):
+    """Логотип станции из stations.json → абсолютный путь.
+
+    В stations.json путь относительный («../assets/logo/x.webp»); берём только
+    имя файла и ищем в `<проект>/assets/logo` (штатное), затем в корне
+    `<проект>/assets`, затем сам путь как есть. Первое найденное — побеждает.
+    (Кастомные обложки станций лежат в assets — не в backgrounds.)
+    """
+    if not logo:
+        return None
+    name = Path(logo).name
+    candidates = [
+        PROJECT_DIR / "assets" / "logo" / name,
+        PROJECT_DIR / "assets" / name,
+        Path(logo),
+    ]
+    for cand in candidates:
+        try:
+            if cand.exists():
+                return str(cand)
+        except OSError:
+            continue
+    return None
+
+
+def _hue_of_str(s):
+    """Стабильный оттенок 0..359 из строки (без солёного хэша Python)."""
+    return sum(ord(c) for c in (s or "")) % 360
+
+
+def _make_station_cover(name, sid):
+    """Обложка станции, сгенерированная из её данных (имя/id), когда нет
+    своего логотипа: градиент по hue(id) + крупная буква + название снизу.
+    Возвращает квадрат 512×512."""
+    S = 512
+    pm = QPixmap(S, S)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+    h = _hue_of_str(sid or name)
+    c1 = QColor.fromHsl(h, 130, 150)
+    c2 = QColor.fromHsl((h + 28) % 360, 150, 78)
+    g = QLinearGradient(0.0, 0.0, S * 0.35, S)
+    g.setColorAt(0.0, c1)
+    g.setColorAt(1.0, c2)
+    p.fillRect(0, 0, S, S, g)
+    # крупная буква
+    letter = (name.strip() or "?")[0].upper()
+    f = QFont()
+    f.setBold(True)
+    f.setPointSize(230)
+    p.setFont(f)
+    p.setPen(QColor(255, 255, 255, 235))
+    p.drawText(pm.rect(), Qt.AlignCenter, letter)
+    # название снизу (перенос по словам)
+    f2 = QFont()
+    f2.setBold(True)
+    f2.setPointSize(30)
+    p.setFont(f2)
+    p.setPen(QColor(255, 255, 255, 210))
+    tr = QRect(int(S * 0.08), int(S * 0.66), int(S * 0.84), int(S * 0.26))
+    p.drawText(tr, Qt.AlignHCenter | Qt.AlignTop | Qt.TextWordWrap, name or "")
+    p.end()
+    return pm
+
+
+def _make_track_cover(text):
+    """Обложка, сгенерированная из данных ТРЕКА (artist/title), когда
+    настоящей обложки нет ни в iTunes, ни у станции (напр. AI-миксы
+    MixStream). Градиент по hue + исполнитель + название. Квадрат 512×512."""
+    S = 512
+    text = (text or "").strip()
+    i = text.find(" - ")
+    if i > 0:
+        artist, title = text[:i].strip(), text[i + 3:].strip()
+    else:
+        artist, title = "", text
+    pm = QPixmap(S, S)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+    h = _hue_of_str(text)
+    c1 = QColor.fromHsl(h, 120, 145)
+    c2 = QColor.fromHsl((h + 40) % 360, 150, 62)
+    g = QLinearGradient(0.0, 0.0, S * 0.4, S)
+    g.setColorAt(0.0, c1)
+    g.setColorAt(1.0, c2)
+    p.fillRect(0, 0, S, S, g)
+    # крупная буква названия по центру
+    letter = (title[:1] or "♪").upper()
+    f = QFont()
+    f.setBold(True)
+    f.setPointSize(210)
+    p.setFont(f)
+    p.setPen(QColor(255, 255, 255, 225))
+    p.drawText(pm.rect(), Qt.AlignCenter, letter)
+    # исполнитель (сверху над названием) — в одну строку, длинное обрезаем
+    if artist:
+        fa = QFont()
+        fa.setPointSize(22)
+        p.setFont(fa)
+        p.setPen(QColor(255, 255, 255, 190))
+        ar = QRect(int(S * 0.08), int(S * 0.56), int(S * 0.84), int(S * 0.10))
+        p.drawText(ar, Qt.AlignHCenter | Qt.AlignBottom,
+                   QFontMetrics(fa).elidedText(artist, Qt.ElideRight, ar.width()))
+    # название снизу — в 2 строки; если не влезает, обрезаем с многоточием
+    ft = QFont()
+    ft.setBold(True)
+    ft.setPointSize(28)
+    p.setFont(ft)
+    p.setPen(QColor(255, 255, 255, 220))
+    tr = QRect(int(S * 0.08), int(S * 0.67), int(S * 0.84), int(S * 0.28))
+    flags = Qt.AlignHCenter | Qt.AlignTop | Qt.TextWordWrap
+    fm_t = QFontMetrics(ft)
+    shown = title or ""
+    if fm_t.boundingRect(tr, flags, shown).height() > tr.height():
+        # не влезает в 2 строки — режем по словам, пока текст с «…» не поместится
+        while shown and fm_t.boundingRect(tr, flags, shown + "…").height() > tr.height():
+            shown = shown[:-1].rstrip()
+        shown += "…"
+    p.drawText(tr, flags, shown)
+    p.end()
+    return pm
+
+
 _VIZ_NAMES = ["Glowing Wave", "Ring", "Bars", "Spectrum", "Fireflies",
-              "Fireflies Dots", "Liquid", "Galaxy", "Warp", "Oscilloscope"]
+              "Fireflies Dots", "Liquid", "Galaxy", "Warp", "Oscilloscope", "Нет"]
+NONE_VIZ = len(_VIZ_NAMES) - 1   # «Нет» — визуализатор отключён
+CARD_VIZ = -2                    # «Карточка» — flip-карточка трека/станции
 
 # шрифт часов — как у виджета часов в Noctalia, но плотнее: ExtraLight
 # (тот, что в виджете) на тёмном фоне читается плохо, SemiBold держит
@@ -261,21 +393,6 @@ def build_style(th):
 STYLE = build_style(themes.current)   # main.py ставит его как есть
 
 
-class _FadeMenu(QMenu):
-    """Меню с плавным появлением (fade-in 140 мс)."""
-
-    def showEvent(self, event):
-        super().showEvent(event)
-        eff = QGraphicsOpacityEffect(self)
-        eff.setOpacity(0.0)
-        self.setGraphicsEffect(eff)
-        anim = QPropertyAnimation(eff, b"opacity", self)
-        anim.setDuration(140)
-        anim.setStartValue(0.0)
-        anim.setEndValue(1.0)
-        anim.start(QAbstractAnimation.DeleteWhenStopped)
-
-
 class _SeekSlider(QSlider):
     """Полоса перемотки: клик и перетаскивание, seekRequested(0..1)."""
     seekRequested = Signal(float)
@@ -316,13 +433,47 @@ class _Canvas(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._pixmap = None
+        self._card_text = None
+        self._card_active = False     # режим «Карточка» — рисуем галактику
+        # галактика: звёзды и туманности в нормированных координатах (0..1)
+        rnd = random.Random(1337)    # фиксированный расклад
+        self._stars = [(rnd.random(), rnd.random(),
+                        rnd.uniform(0.6, 2.2), rnd.uniform(0, 6.28),
+                        rnd.uniform(0.25, 0.8))
+                       for _ in range(160)]
+        self._nebulae = [(rnd.random(), rnd.random(), rnd.uniform(0.25, 0.5),
+                          rnd.uniform(0, 360), rnd.uniform(26, 46))
+                         for _ in range(3)]
+        self._gal_timer = QTimer(self)
+        self._gal_timer.setInterval(50)
+        self._gal_timer.timeout.connect(self.update)
 
     def set_pixmap(self, pm):
         self._pixmap = pm
         self.update()
 
+    def set_card_text(self, text):
+        """Подпись поверх фона (название трека в режиме «Карточка трека»)."""
+        self._card_text = (text or "").strip() or None
+        self.update()
+
+    def set_card_backdrop(self, on):
+        """Вкл/выкл галактику+свечение за карточкой (режим «Карточка»)."""
+        on = bool(on)
+        if on == self._card_active:
+            return
+        self._card_active = on
+        if on:
+            self._gal_timer.start()
+        else:
+            self._gal_timer.stop()
+        self.update()
+
     def paintEvent(self, event):
         p = QPainter(self)
+        if self._card_active:
+            self._paint_galaxy(p)
+            return
         if self._pixmap is not None and not self._pixmap.isNull():
             scaled = self._pixmap.scaled(
                 self.size(), Qt.KeepAspectRatioByExpanding,
@@ -335,6 +486,54 @@ class _Canvas(QWidget):
             p.fillRect(self.rect(), th.q(th.veil[0], th.veil[1]))
         else:
             p.fillRect(self.rect(), themes.current.q(themes.current.canvas))
+        # подпись карточки трека — по центру снизу, с тенью для читаемости
+        if self._card_text:
+            th = themes.current
+            rect = self.rect()
+            f = QFont(self.font())
+            f.setPointSize(15)
+            f.setBold(True)
+            f.setWeight(QFont.Bold)
+            p.setFont(f)
+            yy = rect.bottom() - 22
+            p.setPen(QColor(0, 0, 0, 170))
+            p.drawText(rect.adjusted(0, 0, 0, -20),
+                       Qt.AlignHCenter | Qt.AlignBottom, self._card_text)
+            p.setPen(th.q(th.on_surface))
+            p.drawText(rect.adjusted(0, 0, 0, -22),
+                       Qt.AlignHCenter | Qt.AlignBottom, self._card_text)
+
+    def _paint_galaxy(self, p):
+        """Галактика + мягкое свечение за карточкой (как в мобильной версии):
+        тёмная база, цветные туманности, мерцающие звёзды, пульс в цвет темы."""
+        w, h = float(self.width()), float(self.height())
+        t = time.monotonic()
+        p.fillRect(self.rect(), QColor(6, 8, 16))
+        # туманности (мягкие цветные пятна)
+        th = themes.current
+        for (nx, ny, nr, hue, a) in self._nebulae:
+            col = QColor.fromHsl(int(hue) % 360, 140, 120, int(a))
+            g = QRadialGradient(nx * w, ny * h, nr * min(w, h))
+            g.setColorAt(0.0, col)
+            g.setColorAt(1.0, QColor(0, 0, 0, 0))
+            p.fillRect(self.rect(), g)
+        # звёзды (мерцание)
+        p.setPen(Qt.NoPen)
+        for (x, y, rad, ph, base) in self._stars:
+            b = base + 0.5 * abs(math.sin(t * 1.3 + ph))
+            a = int(40 + 200 * b)
+            p.setBrush(QColor(255, 255, 255, a))
+            p.drawEllipse(QRectF(x * w - rad, y * h - rad, rad * 2, rad * 2))
+        # центральное свечение (пульс)
+        pulse = 0.55 + 0.45 * abs(math.sin(t * 0.7))
+        ac = th.q(th.primary)
+        glow = QRadialGradient(w / 2.0, h / 2.0, min(w, h) * 0.6)
+        glow.setColorAt(0.0, QColor(ac.red(), ac.green(), ac.blue(),
+                                     int(150 * pulse)))
+        glow.setColorAt(0.5, QColor(ac.red(), ac.green(), ac.blue(),
+                                     int(45 * pulse)))
+        glow.setColorAt(1.0, QColor(0, 0, 0, 0))
+        p.fillRect(self.rect(), glow)
 
 
 class Pill(QToolButton):
@@ -379,6 +578,127 @@ class Pill(QToolButton):
             self._apply()
 
 
+class _TrackCard(QWidget):
+    """3D flip-карточка (как в мобильной версии).
+
+    front — обложка ТРЕКА (видна по умолчанию). back — обложка СТАНЦИИ
+    (кастомная из assets либо сгенерированная заглушка). Клик переворачивает.
+    Размер квадратный, позиционируется по центру окна.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._front = QPixmap()
+        self._back = QPixmap()
+        self._angle = 0.0        # 0 = front (трек), 180 = back (станция)
+        self._pop = 0.0          # кратковременный «поп» при смене трека
+        self._flip = QPropertyAnimation(self, b"angle", self)
+        self._flip.setDuration(620)
+        self._flip.setEasingCurve(QEasingCurve.InOutCubic)
+        self._pop_anim = QPropertyAnimation(self, b"pop", self)
+        self._pop_anim.setDuration(900)
+        self._pop_anim.setEasingCurve(QEasingCurve.OutBack)
+        self.setCursor(Qt.PointingHandCursor)
+        self.hide()
+
+    # кастомные свойства для анимации
+    def _get_angle(self):
+        return self._angle
+
+    def _set_angle(self, v):
+        self._angle = float(v)
+        self.update()
+
+    angle = Property(float, _get_angle, _set_angle)
+
+    def _get_pop(self):
+        return self._pop
+
+    def _set_pop(self, v):
+        self._pop = float(v)
+        self.update()
+
+    pop = Property(float, _get_pop, _set_pop)
+
+    # ---------- публичный API ----------
+
+    def set_front(self, pm):
+        self._front = pm if pm is not None else QPixmap()
+        self.update()
+
+    def set_back(self, pm):
+        self._back = pm if pm is not None else QPixmap()
+        self.update()
+
+    def toggle_flip(self):
+        self._flip.stop()
+        self._flip.setStartValue(self._angle)
+        self._flip.setEndValue(0.0 if self._angle >= 90.0 else 180.0)
+        self._flip.start()
+
+    def mousePressEvent(self, e):
+        self.toggle_flip()
+
+    # ---------- отрисовка ----------
+
+    def paintEvent(self, event):
+        if self.width() <= 0 or self.height() <= 0:
+            return
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        side = min(self.width(), self.height())
+        scale = 1.0 + 0.07 * self._pop
+        cx, cy = self.width() / 2.0, self.height() / 2.0
+        # квадрат карточки с учётом pop-масштаба
+        half = side * scale / 2.0
+        bx, by, bw, bh = cx - half, cy - half, half * 2, half * 2
+
+        angle = self._angle
+        showing_front = angle < 90.0
+        sx = max(0.02, abs(math.cos(math.radians(angle))))
+        th = themes.current
+
+        p.save()
+        p.translate(cx, cy)
+        p.scale(sx, 1.0)              # «поворот» по горизонтали (flip)
+        p.translate(-cx, -cy)
+
+        # фон-плашка (на случай пустой картинки)
+        grad = QLinearGradient(bx, by, bx, by + bh)
+        grad.setColorAt(0.0, th.q(th.primary))
+        grad.setColorAt(1.0, th.q(th.canvas))
+        p.setBrush(grad)
+        p.setPen(QPen(th.q(th.on_surface, 40), 1.0))
+        p.drawRoundedRect(QRectF(bx, by, bw, bh), 22, 22)
+
+        pm = self._front if showing_front else self._back
+        if pm is not None and not pm.isNull():
+            # contain внутри карточки с небольшим отступом
+            pad = bw * 0.04
+            tr = QRectF(bx + pad, by + pad, bw - 2 * pad, bh - 2 * pad)
+            pix = pm.scaled(int(tr.width()), int(tr.height()),
+                            Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            dx = bx + (bw - pix.width()) / 2.0
+            dy = by + (bh - pix.height()) / 2.0
+            p.setBrush(Qt.NoBrush)
+            p.setPen(Qt.NoPen)
+            # обрезаем по скруглённому квадрату. НЕ setClipPath(путь) — под
+            # Wayland/EGL это даёт segfault; клипируем через QRegion-полигон.
+            clip = QPainterPath()
+            clip.addRoundedRect(QRectF(bx, by, bw, bh), 22, 22)
+            p.setClipRegion(QRegion(clip.toFillPolygon().toPolygon()))
+            p.drawPixmap(int(dx), int(dy), pix)
+            p.setClipping(False)
+        else:
+            # заглушка: нотка
+            p.setPen(th.q(th.on_surface if showing_front else th.on_primary))
+            f = QFont(self.font())
+            f.setPointSize(int(side * 0.3))
+            p.setFont(f)
+            p.drawText(QRectF(bx, by, bw, bh), Qt.AlignCenter, "♪")
+        p.restore()
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -399,6 +719,11 @@ class MainWindow(QMainWindow):
         self._dl_actions = {}       # путь → пункт списка (для времени)
         self._cur_dur = 0.0         # длительность играющего файла
         self._bg_name = None        # выбранный фон (имя файла) или None
+        self._bg_mode = "none"      # none | image  (карточка теперь в визуализаторах)
+        self.cover = CoverFetcher()  # поиск обложек треков (iTunes + кэш)
+        self._cover_pixmap = QPixmap()
+        self._cover_key = ""        # ключ текущего трека (artist|title)
+        self._station_logos = {}    # id станции → скачанный из сети логотип
 
         self._build()
         self._load_list()
@@ -411,6 +736,7 @@ class MainWindow(QMainWindow):
         self.engine.positionChanged.connect(self._on_position)
         self.engine.fileEnded.connect(self._on_file_ended)
         self.durations.ready.connect(self._on_duration_ready)
+        self.cover.ready.connect(self._on_cover_ready)
         self._on_state(self.engine.state)
 
         # минимальная ширина шапки без слогана и подписи — от неё считаем,
@@ -427,6 +753,7 @@ class MainWindow(QMainWindow):
 
     def _build(self):
         central = _Canvas()
+        self._canvas = central
         root = QVBoxLayout(central)
         root.setContentsMargins(14, 12, 14, 12)
         root.setSpacing(10)
@@ -434,6 +761,7 @@ class MainWindow(QMainWindow):
         # --- шапка: логотип-котик + название + слоган ---
         header = QFrame()
         header.setObjectName("panel")
+        self.header = header
         hbox = QHBoxLayout(header)
         hbox.setContentsMargins(18, 8, 18, 8)
         root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -571,6 +899,7 @@ class MainWindow(QMainWindow):
         # --- нижняя панель плеера ---
         player = QFrame()
         player.setObjectName("playerBar")
+        self.player_frame = player
         ph = QHBoxLayout(player)
         ph.setContentsMargins(20, 8, 20, 8)
         ph.setSpacing(10)
@@ -685,39 +1014,129 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(central)
 
+        # flip-карточка трека (поверх визуализатора, под шапкой/плеером)
+        self._card = _TrackCard(central)
+        self.header.raise_()
+        self.player_frame.raise_()
+        self._layout_card()
+
         # аудио-тап → все режимы визуализатора
         self.tap = AudioTap()
         for v in self.viz_modes:
             self.tap.level.connect(v.set_audio_level)
             self.tap.bands.connect(v.set_bands)
             self.tap.wave.connect(v.set_wave)
-        self.viz_stack.currentChanged.connect(self._on_viz_changed)
-
-    def _on_viz_changed(self, idx):
-        # плавное появление нового режима (fade-in 180 мс)
-        w = self.viz_stack.widget(idx)
-        eff = QGraphicsOpacityEffect(w)
-        eff.setOpacity(0.0)
-        w.setGraphicsEffect(eff)
-        anim = QPropertyAnimation(eff, b"opacity", w)
-        anim.setDuration(180)
-        anim.setStartValue(0.0)
-        anim.setEndValue(1.0)
-        anim.start(QAbstractAnimation.DeleteWhenStopped)
 
     def _build_viz_menu(self):
         self.viz_menu.clear()
         for i, name in enumerate(_VIZ_NAMES):
+            if i == NONE_VIZ:
+                continue          # «Нет» добавим отдельно в конце
             act = self.viz_menu.addAction(name)
             act.setCheckable(True)
             act.setChecked(i == self._viz_idx)
             act.triggered.connect(lambda c=False, k=i: self._set_viz(k))
+        # карточка трека — отдельный режим центра (рядом с визуализаторами)
+        act = self.viz_menu.addAction("🂠  Карточка")
+        act.setCheckable(True)
+        act.setChecked(self._viz_idx == CARD_VIZ)
+        act.triggered.connect(lambda c=False: self._set_viz(CARD_VIZ))
+        self.viz_menu.addSeparator()
+        act = self.viz_menu.addAction("Нет")
+        act.setCheckable(True)
+        act.setChecked(self._viz_idx == NONE_VIZ)
+        act.triggered.connect(lambda c=False: self._set_viz(NONE_VIZ))
+
+    def _layout_card(self):
+        """Позиционирует flip-карточку по центру (между шапкой и плеером)."""
+        central = self.centralWidget()
+        if central is None:
+            return
+        r = central.rect()
+        top = self.header.height() + 10
+        bot = self.player_frame.height() + 10
+        avail = r.adjusted(10, top, -10, -bot)
+        if avail.width() <= 0 or avail.height() <= 0:
+            return
+        side = int(min(max(200, min(avail.width(), avail.height())), 512))
+        x = int(avail.x() + (avail.width() - side) / 2.0)
+        y = int(avail.y() + (avail.height() - side) / 2.0)
+        self._card.setGeometry(x, y, side, side)
+
+    def _update_center(self):
+        """Что показывать в центре: карточка (режим КАРТОЧКА), визуализатор
+        или ничего («Нет» — тогда виден только фон окна)."""
+        card_on = self._viz_idx == CARD_VIZ
+        self._card.setVisible(card_on)
+        self.centralWidget().set_card_backdrop(card_on)
+        self.viz_stack.setVisible(
+            self._viz_idx != CARD_VIZ and self._viz_idx != NONE_VIZ)
+
+    def _refresh_card(self):
+        """Перечитывает обе стороны карточки из текущего состояния:
+        front — обложка ТРЕКА (видна по умолчанию), back — обложка СТАНЦИИ."""
+        st = self._current_station()
+        self._card.set_front(self._front_cover_pm(st))
+        self._card.set_back(self._station_cover_pm(st))
+        self._card.update()
+
+    def _station_cover_real(self, st):
+        """РЕАЛЬНАЯ обложка станции (кастом из assets или скачанный логотип),
+        либо None. Заглушку не возвращает — её строит _station_cover_pm."""
+        if st:
+            path = _resolve_logo(st.get("logo"))
+            if path:
+                pm = QPixmap(path)
+                if not pm.isNull():
+                    return pm
+            pm = self._station_logos.get(st.get("id", ""))
+            if pm is not None and not pm.isNull():
+                return pm
+        return None
+
+    def _front_cover_pm(self, st):
+        """Лицо карточки — обложка ТРЕКА (приоритет): из iTunes, иначе
+        сгенерированная из названия трека. Обложку станции сюда НЕ ставим —
+        иначе лицо дублирует оборот (как было у MixStream Boogie)."""
+        if not self._cover_pixmap.isNull():
+            return self._cover_pixmap
+        return _make_track_cover(self._track)
+
+    def _station_cover_pm(self, st):
+        """Обложка станции для оборота карточки: реальная (кастом/SomaFM/URL),
+        иначе сгенерированная заглушка (градиент + буква + имя)."""
+        real = self._station_cover_real(st)
+        if real is not None:
+            return real
+        return _make_station_cover(
+            st.get("name", "") if st else "",
+            st.get("id", "") if st else "")
+
+    def _update_card_station(self):
+        """Обновляет оборот карточки (обложка станции) и, если обложки трека
+        нет, лицо — по тому же приоритету (реальная станция / обложка трека)."""
+        st = self._current_station()
+        self._card.set_back(self._station_cover_pm(st))
+        if self._cover_pixmap.isNull():
+            self._card.set_front(self._front_cover_pm(st))
 
     def _set_viz(self, idx):
+        # допустимые значения: 0..len(viz_modes)-1 — режимы, CARD_VIZ — карточка,
+        # NONE_VIZ — без визуализатора (виден фон окна)
+        if idx not in (CARD_VIZ, NONE_VIZ) and not (0 <= idx < len(self.viz_modes)):
+            idx = 0
         self._viz_idx = idx
-        self.viz_stack.setCurrentIndex(idx)
-        self.viz_pill.setText("✦  %s" % _VIZ_NAMES[idx])
+        if idx == CARD_VIZ:
+            self.viz_pill.setText("✦  Карточка")
+            self._refresh_card()     # заполнить обе стороны текущим состоянием
+            self._layout_card()      # свежая геометрия (на случай без resize)
+        elif idx == NONE_VIZ:
+            self.viz_pill.setText("✦  Нет")
+        else:
+            self.viz_stack.setCurrentIndex(idx)
+            self.viz_pill.setText("✦  %s" % _VIZ_NAMES[idx])
         self.settings.setValue("viz", idx)
+        self._update_center()
 
     def _build_bg_menu(self):
         """Пересобирается при каждом открытии: новые файлы видны сразу."""
@@ -736,20 +1155,26 @@ class MainWindow(QMainWindow):
         act.triggered.connect(self._open_bg_folder)
 
     def _set_bg(self, name):
-        # оконный фон под всеми режимами; None = «Без фона»
+        # name: None/"none" — без фона; иначе имя файла из backgrounds/
         pm = None
-        if name:
-            cand = QPixmap(os.path.join(BG_DIR, name))
-            if not cand.isNull():
-                pm = cand
+        if name not in (None, "none"):
+            cand = QPixmap(os.path.join(BG_DIR, name)) if name else QPixmap()
+            pm = cand if not cand.isNull() else None
+        self._bg_mode = "image" if pm is not None else "none"
         self._bg_name = name if pm is not None else None
         self.centralWidget().set_pixmap(pm)
+        self.centralWidget().set_card_text(None)
+        # визуализатор прозрачен поверх картинки; сплошной фон — только без
+        # фона (чтобы картинка не перекрывалась чёрным, как просил пользователь)
         for v in self.viz_modes:
             v.set_window_bg(pm is not None)
         self.bg_pill.setText(
             "Фон: %s" % (_bg_label(self._bg_name) if self._bg_name
                          else "без фона"))
-        self.settings.setValue("bg_file", self._bg_name or "")
+        if self._bg_name:
+            self.settings.setValue("bg_file", self._bg_name)
+        else:
+            self.settings.remove("bg_file")
 
     def _open_bg_folder(self):
         os.makedirs(BG_DIR, exist_ok=True)
@@ -962,24 +1387,50 @@ class MainWindow(QMainWindow):
         except (TypeError, ValueError):
             self.slider.setValue(80)
         station_id = self.settings.value("station", "")
-        # фон: новый ключ bg_file; старый bg_image (вкл/выкл кота) — миграция
-        bg = self.settings.value("bg_file", None)
-        if bg is None:
-            legacy = self.settings.value("bg_image", True)
-            bg = _BG_LEGACY if legacy in (True, "true") else ""
         self.btn_shuffle.setChecked(
             self.settings.value("shuffle", False) in (True, "true"))
+
+        # тема (до фона: авто-тема может зависеть от станции)
         saved = self.settings.value("theme", "")
-        if saved in themes.themes:
+        if saved == themes.AUTO:
+            themes.set(themes.AUTO)
+        elif saved in themes.themes:
             themes.set(saved)
-        if bg and bg not in _bg_files():
-            bg = ""
-        self._set_bg(bg or None)
-        try:
-            viz = int(self.settings.value("viz", 0))
-        except (TypeError, ValueError):
-            viz = 0
-        self._set_viz(viz if 0 <= viz < len(_VIZ_NAMES) else 0)
+
+        # фон: новый ключ bg_mode; старые bg_file / bg_image — миграция
+        bg_mode = self.settings.value("bg_mode", None)
+        if bg_mode is None:
+            legacy = self.settings.value("bg_file", "")
+            if legacy:
+                bg_mode = "image" if legacy in _bg_files() else "none"
+            else:
+                bg_image = self.settings.value("bg_image", True)
+                bg_mode = "image" if bg_image in (True, "true") else "none"
+        if bg_mode == "image":
+            bg_name = self.settings.value("bg_file", "")
+            if bg_name and bg_name not in _bg_files():
+                bg_name = ""
+            self._set_bg(bg_name or "none")
+        else:
+            self._set_bg("none")
+
+        # визуализатор: -1 (старый ключ) = «Нет»; «card» из старых настроек —
+        # режим «Карточка» теперь живёт в меню визуализатора
+        if bg_mode == "card":
+            viz = CARD_VIZ
+        else:
+            try:
+                viz = int(self.settings.value("viz", 0))
+            except (TypeError, ValueError):
+                viz = 0
+            if viz == -1:
+                viz = NONE_VIZ
+        self._set_viz(viz)
+
+        # авто-тема: запасной оттенок по последней станции
+        if themes.is_auto():
+            themes.set_auto_fallback(station_id or "marsik")
+
         for st in self.stations:
             if st.get("id") == station_id:
                 # пилюля показывает прошлую станцию без автозапуска
@@ -994,6 +1445,12 @@ class MainWindow(QMainWindow):
         self._set_local_ui(False)
         # пилюля-остров показывает активную станцию
         self.pill.setText("♪  %s" % st.get("name", ""))
+        if self._viz_idx == CARD_VIZ:
+            self._update_card_station()   # обложка станции на обороте
+        # если у станции нет локального логотипа — тянем настоящий из сети
+        # (SomaFM-каталог / logo-URL) — он нужен для ОБОРОТА карточки
+        if not _resolve_logo(st.get("logo")):
+            self.cover.fetch_station(st)
         self.engine.play(st["url"])
 
     def _on_menu_station(self, st):
@@ -1076,17 +1533,61 @@ class MainWindow(QMainWindow):
     def _on_track(self, title):
         self._track = (title or "").strip()
         self.lbl_track.setText(self._track)
-        # плавное появление нового трека (fade-in 220 мс)
-        if title:
-            eff = QGraphicsOpacityEffect(self.lbl_track)
-            eff.setOpacity(0.0)
-            self.lbl_track.setGraphicsEffect(eff)
-            anim = QPropertyAnimation(eff, b"opacity", self.lbl_track)
-            anim.setDuration(220)
-            anim.setStartValue(0.0)
-            anim.setEndValue(1.0)
-            anim.start(QAbstractAnimation.DeleteWhenStopped)
+        # ключ ВЫСТАВЛЯЕМ ДО fetch: при попадании в кэш fetch эмитит ready
+        # синхронно, и _on_cover_ready иначе отбросит обложку как устаревшую
+        self._cover_key = CoverFetcher.key_for(self._track)
+        self.cover.fetch(self._track)
         self._update_save_state()
+
+    def _current_station(self):
+        for s in self.stations:
+            if s.get("id") == self._playing_id:
+                return s
+        return None
+
+    def _on_cover_ready(self, key, pm):
+        """Готова картинка: обложка трека (лицо) или логотип станции (оборот)."""
+        # логотип станции, скачанный из сети (каталог SomaFM / logo-URL)
+        if key.startswith("station|"):
+            sid = key.split("|", 1)[1]
+            if not pm.isNull():
+                self._station_logos[sid] = pm
+            if sid == self._playing_id and self._viz_idx == CARD_VIZ:
+                self._update_card_station()
+            return
+        if key != self._cover_key:
+            return   # трек уже сменился — этот ответ не актуален
+        self._cover_pixmap = pm
+        if self._viz_idx == CARD_VIZ:
+            # лицо всегда = обложка трека (pm или сгенерированная из названия)
+            self._card.set_front(self._front_cover_pm(self._current_station()))
+            st = self._current_station()
+            if (st is not None
+                    and not _resolve_logo(st.get("logo"))
+                    and st.get("id") not in self._station_logos):
+                self.cover.fetch_station(st)   # логотип станции для ОБОРОТА
+        if themes.is_auto():
+            avg = self._avg_color(pm) if not pm.isNull() else None
+            if avg is None:
+                themes.set_auto_fallback(self._playing_id or "marsik")
+            else:
+                themes.set_auto(avg)
+
+    @staticmethod
+    def _avg_color(pm):
+        """Средний цвет картинки (10×10) — как averageColor в мобильной."""
+        if pm.isNull():
+            return None
+        small = pm.scaled(10, 10, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
+        img = small.toImage()
+        r = g = b = n = 0
+        for y in range(10):
+            for x in range(10):
+                c = img.pixelColor(x, y)
+                r += c.red(); g += c.green(); b += c.blue(); n += 1
+        if not n:
+            return None
+        return (r // n, g // n, b // n)
 
     def _on_error(self, message):
         self._last_error = message
@@ -1306,6 +1807,10 @@ class MainWindow(QMainWindow):
             self.engine.stop()
 
     # ---------- закрытие ----------
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._layout_card()
 
     def closeEvent(self, event):
         self.settings.setValue("geometry", self.saveGeometry())
