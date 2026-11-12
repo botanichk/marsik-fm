@@ -213,7 +213,7 @@ CARD_VIZ = -2                    # «Карточка» — flip-карточк�
 # шрифт часов — как у виджета часов в Noctalia, но плотнее: ExtraLight
 # (тот, что в виджете) на тёмном фоне читается плохо, SemiBold держит
 # тот же точечный рисунок и виден издалека
-CLOCK_FONT = "Bitcount Single Cursive SemiBold"
+CLOCK_FONT = "Bitcount Prop Single Cursive"
 CLOCK_FORMAT = "HH:mm"
 
 _YTDLP = shutil.which("yt-dlp") or ""
@@ -246,7 +246,8 @@ QLabel#logo { font-size: 24px; font-weight: 800; color: ${title}; }
 QLabel#tagline { font-size: 11px; color: ${accent}; letter-spacing: 2px; }
 QLabel#slogan { font-size: 13px; color: ${muted}; font-style: italic; }
 QLabel#clock {
-    font-family: "Bitcount Single Cursive SemiBold";
+    font-family: "Bitcount Prop Single Cursive";
+    font-weight: normal;
     font-size: 40px;
     color: ${primary};
 }
