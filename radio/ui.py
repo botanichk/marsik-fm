@@ -579,6 +579,44 @@ class Pill(QToolButton):
             self._apply()
 
 
+class _ElideLabel(QLabel):
+    """Метка, которая режет длинный текст многоточием и не тянет окно шире.
+
+    Без этого QLabel требует всю ширину текста: длинное название трека
+    растягивало нижнюю панель и сдвигало кнопку «Сохранить» и громкость.
+    Полный текст остаётся в подсказке.
+    """
+
+    _full = ""      # class-level: события шрифта могут прийти до __init__
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setTextFormat(Qt.PlainText)   # в названии трека может быть «<»
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+
+    def setText(self, text):
+        self._full = text or ""
+        self._apply()
+
+    def fullText(self):
+        return self._full
+
+    def _apply(self):
+        avail = max(self.width() - 4, 20)
+        super().setText(self.fontMetrics().elidedText(
+            self._full, Qt.ElideRight, avail))
+        super().setToolTip(self._full if self.text() != self._full else "")
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._apply()
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.FontChange:   # QSS применил свой шрифт
+            self._apply()
+
+
 class _TrackCard(QWidget):
     """3D flip-карточка (как в мобильной версии).
 
@@ -940,14 +978,14 @@ class MainWindow(QMainWindow):
         self.btn_shuffle.toggled.connect(self._on_shuffle_toggled)
         self.btn_shuffle.hide()
         ph.addWidget(self.btn_shuffle)
-        ph.addStretch(1)
 
-        # текущий трек (метаданные радио) — центр панели
-        self.lbl_track = QLabel("")
+        # текущий трек (метаданные радио) — центр панели; ширина — остаток
+        # места, длинное название режется многоточием и ничего не сдвигает
+        self.lbl_track = _ElideLabel()
         self.lbl_track.setObjectName("track")
         self.lbl_track.setAlignment(Qt.AlignCenter)
+        self.lbl_track.setMinimumWidth(120)
         ph.addWidget(self.lbl_track, 1)
-        ph.addStretch(1)
 
         # кнопка «Сохранить»: yt-dlp скачивает текущий трек в downloads/
         self.btn_save = QToolButton()

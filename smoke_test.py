@@ -88,6 +88,14 @@ try:
           win.dl_pill.sizeHint().width() < 260
           and win.dl_pill.text().endswith("…")
           and "\n" in win.dl_pill.toolTip())
+    # длинный трек в нижней панели не раздвигает её (кнопка «Сохранить» на месте)
+    short_min = win.player_frame.minimumSizeHint().width()
+    win.lbl_track.setText("Очень длинное название трека " * 10)
+    check("длинное имя трека не раздвигает нижнюю панель",
+          win.player_frame.minimumSizeHint().width() == short_min
+          and win.lbl_track.text().endswith("…")
+          and win.lbl_track.toolTip())
+    win.lbl_track.setText("")
     # часы в правом углу шапки
     check("часы в шапке показывают время",
           re.fullmatch(r"\d{2}:\d{2}", win.clock.text()) is not None,
