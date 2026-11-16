@@ -31,14 +31,15 @@ from PySide6.QtGui import (
     QPainterPath, QPen, QPixmap, QRadialGradient, QRegion,
 )
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QFrame,
-    QHBoxLayout, QLabel, QLineEdit,
+    QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
+    QFrame, QHBoxLayout, QLabel, QLineEdit,
     QMainWindow, QMessageBox, QProgressBar, QSlider, QStackedWidget,
     QSizePolicy, QStyle, QToolButton, QVBoxLayout, QWidget,
 )
 
 from .island import IslandMenu
 from .playlist import DurationProbe, PlayQueue, fmt_time
+from .tray import Tray
 from .theme import THEMES_DIR, hexs, manager as themes
 from .engine import AudioEngine, CONNECTING, ERROR, PAUSED, PLAYING, STOPPED
 from .stations import DEFAULT_PATH, PROJECT_DIR, load_stations, save_stations
@@ -763,8 +764,18 @@ class MainWindow(QMainWindow):
         self._cover_pixmap = QPixmap()
         self._cover_key = ""        # ключ текущего трека (artist|title)
         self._station_logos = {}    # id станции → скачанный из сети логотип
+        self._quitting = False      # True — выход из меню значка (не скрывать)
 
         self._build()
+
+        # значок в трее: иконка из файла приложения (в системной теме её
+        # может не быть), трей может появиться позже — см. radio/tray.py
+        icon = self.windowIcon()
+        if icon.isNull():
+            icon = QIcon.fromTheme("radio")
+        self.tray = Tray(self, icon)
+        self.tray.start()
+
         self._load_list()
         self._count_downloads()
         self._restore()
@@ -1568,10 +1579,22 @@ class MainWindow(QMainWindow):
             self.tap.stop()
         self._update_save_state()
         self._sync_seek_row()
+        self.tray.sync(self._tray_tip(), state == PLAYING)
+
+    def _tray_tip(self):
+        """Подсказка значка: станция и трек (что известно)."""
+        st = self._current_station()
+        parts = ["Marsik FM"]
+        if st:
+            parts.append(st.get("name", ""))
+        if self._track:
+            parts.append(self._track)
+        return "\n".join(p for p in parts if p)
 
     def _on_track(self, title):
         self._track = (title or "").strip()
         self.lbl_track.setText(self._track)
+        self.tray.sync(self._tray_tip(), self.engine.state == PLAYING)
         # ключ ВЫСТАВЛЯЕМ ДО fetch: при попадании в кэш fetch эмитит ready
         # синхронно, и _on_cover_ready иначе отбросит обложку как устаревшую
         self._cover_key = CoverFetcher.key_for(self._track)
@@ -1851,10 +1874,33 @@ class MainWindow(QMainWindow):
         super().resizeEvent(event)
         self._layout_card()
 
+    def toggle_window(self):
+        """Левый клик по значку: свернуть в трей / вернуть окно."""
+        if self.isVisible() and not self.isMinimized():
+            self.hide()
+        else:
+            self.showNormal()
+            self.raise_()
+            self.activateWindow()
+        self.tray.sync(self._tray_tip(), self.engine.state == PLAYING)
+
+    def quit_app(self):
+        """Выход из меню значка: даже если окно спрятано в трей."""
+        self._quitting = True
+        self.close()                       # сохраняет настройки, гасит mpv
+        QApplication.instance().quit()      # скрытое окно «последним» не считается
+
     def closeEvent(self, event):
         self.settings.setValue("geometry", self.saveGeometry())
         self.settings.setValue("volume", self.slider.value())
         self.settings.setValue("station", self._playing_id or "")
+        # крестик прячет окно в трей, воспроизведение продолжается;
+        # выход — только через меню значка (или когда трея нет вовсе)
+        if self.tray.icon.isVisible() and not self._quitting:
+            event.ignore()
+            self.hide()
+            self.tray.sync(self._tray_tip(), self.engine.state == PLAYING)
+            return
         if self._dl_proc is not None:
             self._dl_proc.kill()   # без сирот yt-dlp
             self._dl_proc.waitForFinished(2000)

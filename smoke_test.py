@@ -100,6 +100,41 @@ try:
     check("часы в шапке показывают время",
           re.fullmatch(r"\d{2}:\d{2}", win.clock.text()) is not None,
           win.clock.text())
+
+    # ---- трей: меню, подсказка, крестик прячет окно, клик возвращает ----
+    acts = [a.text() for a in win.tray.menu.actions() if not a.isSeparator()]
+    check("трей: меню Показать/Воспроизведение/Выход",
+          len(acts) == 3 and "Выход" in acts[2], acts)
+    win._on_track("Тестовый трек")
+    check("трей: подсказка с треком",
+          "Тестовый трек" in win.tray.icon.toolTip(),
+          win.tray.icon.toolTip())
+    win.show()
+    win.toggle_window()
+    hidden = not win.isVisible()
+    win.toggle_window()
+    check("трей: клик скрывает и возвращает окно",
+          hidden and win.isVisible())
+
+    # крестик при поднятом трее прячет окно, а не выходит (трея в offscreen нет)
+    real_icon = win.tray.icon
+    real_sync = win.tray.sync
+
+    class _ShownIcon:
+        def isVisible(self):
+            return True
+
+        def setToolTip(self, text):
+            pass
+
+    win.tray.icon = _ShownIcon()
+    state_before = win.engine.state
+    win.close()
+    check("трей: крестик прячет окно, воспроизведение не рвётся",
+          not win.isVisible() and win.engine.state == state_before)
+    win.tray.icon = real_icon
+    win.tray.sync = real_sync
+    win.show()
     # перетаскивание станций: порядок меняется и уходит в save_stations
     from PySide6.QtCore import QEvent, QPointF, Qt as _Qt
     from PySide6.QtGui import QMouseEvent
