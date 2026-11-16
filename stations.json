@@ -1,10 +1,10 @@
 [
   {
     "id": "mixstream_radio",
-    "name": "MixStream Radio",
+    "name": "MixStream Radio - BoogiWopogi",
     "description": "",
     "url": "https://radio.mixstream.nl/boogie.mp3",
-    "logo": "../assets/logo/mixstream-radio.webp"
+    "logo": "https://i.ibb.co/C3Rtd2kP/boogi-woogi.png"
   },
   {
     "id": "181.fm_—_front_porch",
@@ -50,7 +50,8 @@
     "id": "ace_cafe",
     "name": "Ace Cafe",
     "description": "",
-    "url": "https://listen.radioking.com/radio/69079/stream/106852"
+    "url": "https://listen.radioking.com/radio/69079/stream/106852",
+    "logo": "https://i.ibb.co/rG5fqvBb/image.jpg"
   },
   {
     "id": "boot_liquor",
