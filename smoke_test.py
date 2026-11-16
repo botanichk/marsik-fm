@@ -11,12 +11,14 @@
 import math
 import os
 import re
+import shutil
 import sys
 import time
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QSettings  # noqa: E402
+from PySide6.QtGui import QPixmap  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from radio.engine import AudioEngine, PAUSED, PLAYING, STOPPED  # noqa: E402
@@ -69,14 +71,15 @@ try:
     # IslandMenu держит пункты в _actions (QWidget.actions() их не знает)
     real = [a for a in win.menu._actions if not a.isSeparator()]
     check("окно собирается",
-          len(real) == len(stations) + 2 and win.pill is not None,
+          len(real) == len(stations) + 3 and win.pill is not None,
           "actions=%d" % len(real))
-    # добавление/удаление: служебные пункты в меню
+    # добавление/правка/удаление: служебные пункты в меню
     texts = [a.text() for a in real]
-    check("меню: пункты «Добавить» и «Удалить» на месте",
+    check("меню: пункты «Добавить», «Изменить», «Удалить» на месте",
           any("Добавить станцию" in t for t in texts)
+          and any("Изменить станцию" in t or "Изменить «" in t for t in texts)
           and any("Удалить станцию" in t or "Удалить «" in t for t in texts),
-          texts[-2:])
+          texts[-3:])
 
     # yt-dlp: пилюля скачанных, кнопка сохранить, список файлов
     check("скачивание: пилюля+кнопка+меню на месте",
@@ -271,6 +274,85 @@ try:
     check("станции: save/load roundtrip", back == sample, "back=%s" % back)
 except Exception as exc:
     check("станции: save/load roundtrip", False, str(exc))
+
+# 6c2. станции: диалог правки, обложка (валидация, сохранение файла, сброс кэша)
+try:
+    import tempfile
+    import radio.ui as _rui
+    from radio.stationdlg import StationDialog, validate, save_logo, _ext_of
+    from radio.stations import save_stations as _save, load_stations as _load
+
+    # валидация: как раньше + новая проверка файла обложки
+    check("станции: валидация имени/URL/обложки",
+          validate("", "https://a", "") and validate("X", "ftp://a", "")
+          and validate("X", "https://a", "/нет/такого.png") is not None
+          and validate("X", "https://a", "") is None
+          and validate("X", "https://a", "https://a/l.png") is None)
+    # обложка, записанная в stations.json относительным путём (../assets/logo/…)
+    check("станции: относительный путь обложки проходит проверку",
+          validate("X", "https://a", "../assets/logo/mixstream-radio.webp") is None)
+
+    # обложка: картинка из байтов сохраняется в папку, мусор — нет
+    td = tempfile.mkdtemp(prefix="radiofm-logo-")
+    pm = QPixmap(8, 8)
+    pm.fill()
+    img_path = os.path.join(td, "in.png")
+    pm.save(img_path)
+    raw = open(img_path, "rb").read()
+    saved = save_logo(raw, "Boot Liquor!", directory=td)
+    png = str(saved) if saved else ""
+    check("станции: обложка сохраняется в папку",
+          bool(png) and os.path.isfile(png)
+          and os.path.basename(png) == "boot_liquor.png", png)
+    check("станции: расширение обложки по сигнатуре файла",
+          _ext_of(b"\xff\xd8\xff\x00") == ".jpg"
+          and _ext_of(b"RIFF0000WEBPVP8 ") == ".webp"
+          and _ext_of(b"\x89PNG\r\n\x1a\n") == ".png")
+    check("станции: не-картинка не сохраняется",
+          save_logo(b"not an image", "x", directory=td) is None)
+
+    # правка: id не меняется, имя/обложка пишутся в stations.json
+    orig_save = _rui.save_stations
+    p = os.path.join(td, "stations.json")
+    _save([{"id": "boot", "name": "Boot", "description": "",
+            "url": "https://a/1.mp3"}], path=p)
+    _rui.save_stations = lambda sts: _save(sts, path=p)
+    win2 = _rui.MainWindow()
+    win2.stations = _load(path=p)
+    win2._rebuild_menu()
+    dlg = StationDialog(win2, win2.stations[0])
+    dlg.ed_name.setText("Boot Liquor")
+    dlg.ed_logo.setText(png)
+    v = dlg.values()
+    # то же, что делает _on_edit_station, без модального окна
+    win2.stations[0].update({"name": v["name"], "url": v["url"],
+                             "description": v["description"], "logo": v["logo"]})
+    _rui.save_stations(win2.stations)
+    win2._refresh_station_cover(win2.stations[0])
+    back = _load(path=p)
+    win2.close()
+    _rui.save_stations = orig_save
+    check("станции: правка меняет имя и обложку, id на месте",
+          len(back) == 1 and back[0]["name"] == "Boot Liquor"
+          and back[0]["id"] == "boot" and back[0]["logo"] == png, str(back))
+    check("станции: правка находит обложку через _resolve_logo",
+          _rui._resolve_logo(png) == png, _rui._resolve_logo(png))
+
+    # пустое поле обложки убирает ключ logo → снова заглушка
+    st = {"id": "b", "name": "B", "url": "https://a", "logo": "https://a/l.png"}
+    dlg2 = StationDialog(None, st)
+    dlg2.ed_logo.setText("")
+    v = dlg2.values()
+    if v["logo"]:
+        st["logo"] = v["logo"]
+    else:
+        st.pop("logo", None)
+    check("станции: пустая обложка снимает ключ logo", "logo" not in st, str(st))
+    shutil.rmtree(td, ignore_errors=True)
+except Exception as exc:
+    import traceback
+    traceback.print_exc()
+    check("станции: правка и обложка", False, str(exc))
 
 # 6d. очередь скачанных: PlayQueue, автопереход по eof, пустая очередь
 try:

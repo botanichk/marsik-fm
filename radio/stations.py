@@ -34,3 +34,29 @@ def save_stations(stations, path=DEFAULT_PATH):
     Path(path).write_text(
         json.dumps(stations, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8")
+
+
+def resolve_logo(logo):
+    """Логотип станции из stations.json → абсолютный путь.
+
+    В stations.json путь относительный («../assets/logo/x.webp»); берём только
+    имя файла и ищем в `<проект>/assets/logo` (штатное), затем в корне
+    `<проект>/assets`, затем сам путь как есть. Первое найденное — побеждает.
+    (Кастомные обложки станций лежат в assets — не в backgrounds.)
+    """
+    if not logo:
+        return None
+    logo = str(logo)
+    name = Path(logo).name
+    candidates = [
+        PROJECT_DIR / "assets" / "logo" / name,
+        PROJECT_DIR / "assets" / name,
+        Path(logo).expanduser(),
+    ]
+    for cand in candidates:
+        try:
+            if cand.is_file():
+                return str(cand)
+        except OSError:
+            continue
+    return None

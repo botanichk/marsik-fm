@@ -25,13 +25,12 @@ from PySide6.QtCore import (
     Property, QRect, QRectF, QSettings, QStandardPaths, Qt, QTime, QTimer,
 )
 from PySide6.QtCore import QUrl, Signal
-from pathlib import Path
 from PySide6.QtGui import (
     QColor, QDesktopServices, QFont, QFontMetrics, QIcon, QLinearGradient, QPainter,
     QPainterPath, QPen, QPixmap, QRadialGradient, QRegion,
 )
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
+    QApplication, QCheckBox, QComboBox, QDialog,
     QFrame, QHBoxLayout, QLabel, QLineEdit,
     QMainWindow, QMessageBox, QProgressBar, QSlider, QStackedWidget,
     QSizePolicy, QStyle, QToolButton, QVBoxLayout, QWidget,
@@ -39,10 +38,12 @@ from PySide6.QtWidgets import (
 
 from .island import IslandMenu
 from .playlist import DurationProbe, PlayQueue, fmt_time
+from .stationdlg import StationDialog
 from .tray import Tray
 from .theme import THEMES_DIR, hexs, manager as themes
 from .engine import AudioEngine, CONNECTING, ERROR, PAUSED, PLAYING, STOPPED
-from .stations import DEFAULT_PATH, PROJECT_DIR, load_stations, save_stations
+from .stations import (
+    DEFAULT_PATH, load_stations, resolve_logo, save_stations)
 from .tap import AudioTap
 from .cover import CoverFetcher
 from .viz.glowing_wave import GlowingWave
@@ -82,28 +83,8 @@ def _bg_label(name):
 
 
 def _resolve_logo(logo):
-    """Логотип станции из stations.json → абсолютный путь.
-
-    В stations.json путь относительный («../assets/logo/x.webp»); берём только
-    имя файла и ищем в `<проект>/assets/logo` (штатное), затем в корне
-    `<проект>/assets`, затем сам путь как есть. Первое найденное — побеждает.
-    (Кастомные обложки станций лежат в assets — не в backgrounds.)
-    """
-    if not logo:
-        return None
-    name = Path(logo).name
-    candidates = [
-        PROJECT_DIR / "assets" / "logo" / name,
-        PROJECT_DIR / "assets" / name,
-        Path(logo),
-    ]
-    for cand in candidates:
-        try:
-            if cand.exists():
-                return str(cand)
-        except OSError:
-            continue
-    return None
+    """Старое имя общего resolve_logo (см. radio/stations.py)."""
+    return resolve_logo(logo)
 
 
 def _hue_of_str(s):
@@ -1333,12 +1314,16 @@ class MainWindow(QMainWindow):
         self.menu.addSeparator()
         act_add = self.menu.addAction("＋  Добавить станцию…")
         act_add.triggered.connect(self._on_add_station)
-        # удалить можно только выбранную (её имя показывает пилюля)
+        # изменить/удалить можно только выбранную (её имя показывает пилюля)
         cur = self._selected_station()
         if cur is not None:
+            act_edit = self.menu.addAction("⚙  Изменить «%s»…" % cur["name"])
+            act_edit.triggered.connect(self._on_edit_station)
             act_del = self.menu.addAction("✕  Удалить «%s»" % cur["name"])
             act_del.triggered.connect(self._on_delete_station)
         else:
+            act_edit = self.menu.addAction("⚙  Изменить станцию…")
+            act_edit.setEnabled(False)
             act_del = self.menu.addAction("✕  Удалить станцию")
             act_del.setEnabled(False)
 
@@ -1360,52 +1345,60 @@ class MainWindow(QMainWindow):
                 return st
         return None
 
-    # ---------- добавление/удаление станций ----------
+    # ---------- добавление/правка/удаление станций ----------
 
     def _on_add_station(self):
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Новая станция")
-        form = QFormLayout(dlg)
-        ed_name = QLineEdit(dlg)
-        ed_name.setPlaceholderText("Например: Boot Liquor")
-        ed_url = QLineEdit(dlg)
-        ed_url.setPlaceholderText("https://ice1.somafm.com/…-128-mp3")
-        ed_desc = QLineEdit(dlg)
-        ed_desc.setPlaceholderText("Описание (необязательно)")
-        form.addRow("Название:", ed_name)
-        form.addRow("URL потока:", ed_url)
-        form.addRow("Описание:", ed_desc)
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dlg)
-        buttons.accepted.connect(dlg.accept)
-        buttons.rejected.connect(dlg.reject)
-        form.addRow(buttons)
+        dlg = StationDialog(self)
         if dlg.exec() != QDialog.Accepted:
             return
-
-        name = ed_name.text().strip()
-        url = ed_url.text().strip()
-        # валидация до записи: пустое имя/URL и не-http протокол
-        if not name:
-            QMessageBox.warning(self, "Marsik FM", "Введите название станции.")
-            return
-        if not url.startswith(("http://", "https://")):
-            QMessageBox.warning(
-                self, "Marsik FM",
-                "URL должен начинаться с http:// или https://")
-            return
-        st_id = name.lower().replace(" ", "_")
+        v = dlg.values()
+        st_id = v["name"].lower().replace(" ", "_")
         base, n = st_id, 2
         while any(s.get("id") == st_id for s in self.stations):
             st_id = "%s_%d" % (base, n)
             n += 1
-        self.stations.append({
-            "id": st_id, "name": name,
-            "description": ed_desc.text().strip(), "url": url,
-        })
+        st = {"id": st_id, "name": v["name"],
+              "description": v["description"], "url": v["url"]}
+        if v["logo"]:
+            st["logo"] = v["logo"]
+        self.stations.append(st)
         save_stations(self.stations)
         self._rebuild_menu()
         self._flash_pill("Станция добавлена", "#2a9d6a")
+
+    def _on_edit_station(self):
+        st = self._selected_station()
+        if st is None:
+            return
+        dlg = StationDialog(self, st)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        v = dlg.values()
+        st["name"] = v["name"]
+        st["url"] = v["url"]
+        st["description"] = v["description"]
+        if v["logo"]:
+            st["logo"] = v["logo"]
+        else:
+            st.pop("logo", None)       # пусто → снова заглушка
+        save_stations(self.stations)
+        # имя могло измениться: пилюля (если станция играет) и подсказка значка
+        if st.get("id") == self._playing_id:
+            self.pill.setText("♪  %s" % st["name"])
+            self.tray.sync(self._tray_tip(), self.engine.state == PLAYING)
+        self._refresh_station_cover(st)
+        self._rebuild_menu()
+        self._flash_pill("Станция изменена", "#2a9d6a")
+
+    def _refresh_station_cover(self, st):
+        """Сбрасывает закэшированную обложку станции: скачанную с сети и на
+        диске в кэше обложек (иначе после правки осталась бы старая картинка)."""
+        self._station_logos.pop(st.get("id", ""), None)
+        self.cover.forget_station(st)
+        if st.get("id") == self._playing_id:
+            if not _resolve_logo(st.get("logo")):
+                self.cover.fetch_station(st)   # новая ссылка — тянем заново
+            self._update_card_station()
 
     def _on_delete_station(self):
         st = self._selected_station()

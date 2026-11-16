@@ -171,6 +171,16 @@ class CoverFetcher(QObject):
             return self._soma.get(sid)
         return None
 
+    def forget_station(self, station):
+        """Сбрасывает обложку станции (после правки ссылки на картинку)."""
+        key = "station|%s" % (station or {}).get("id", "")
+        self._mem.pop(key, None)
+        self._seen.discard(key)
+        try:
+            self._cache_path(key).unlink()
+        except OSError:
+            pass
+
     # ---------- сеть ----------
 
     def _on_reply(self, reply):
